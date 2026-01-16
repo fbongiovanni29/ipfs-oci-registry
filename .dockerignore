@@ -1,0 +1,40 @@
+# Git
+.git
+.gitignore
+
+# Build artifacts
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+oci-ipfs-registry
+
+# Test files
+*_test.go
+*.test
+
+# Documentation
+docs/
+*.md
+!README.md
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Local data
+data/
+*.db
+
+# Docker/Kubernetes
+Dockerfile*
+docker-compose*.yaml
+docker-compose*.yml
+charts/
+
+# Misc
+.DS_Store
+*.log

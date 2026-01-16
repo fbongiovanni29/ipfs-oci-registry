@@ -1,0 +1,18 @@
+{{- if and .Values.ipfs.deploy.enabled (eq .Values.ipfs.deploy.mode "deployment") .Values.ipfs.deploy.persistence.enabled }}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "oci-ipfs-registry.fullname" . }}-ipfs-data
+  labels:
+    {{- include "oci-ipfs-registry.labels" . | nindent 4 }}
+    app.kubernetes.io/component: ipfs
+spec:
+  accessModes:
+    - {{ .Values.ipfs.deploy.persistence.accessMode }}
+  {{- if .Values.ipfs.deploy.persistence.storageClass }}
+  storageClassName: {{ .Values.ipfs.deploy.persistence.storageClass | quote }}
+  {{- end }}
+  resources:
+    requests:
+      storage: {{ .Values.ipfs.deploy.persistence.size }}
+{{- end }}

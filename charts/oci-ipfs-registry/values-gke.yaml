@@ -1,0 +1,97 @@
+# Google GKE Production Configuration
+#
+# Prerequisites:
+# 1. GKE cluster with Workload Identity enabled
+# 2. cert-manager installed (or use Google-managed certs)
+# 3. Cloud DNS Private Zone for internal DNS
+#
+# Usage:
+#   helm install registry ./charts/oci-ipfs-registry \
+#     -f values-gke.yaml \
+#     --set ingress.hosts[0].host=registry.internal.yourcompany.com \
+#     --set ingress.tls[0].hosts[0]=registry.internal.yourcompany.com
+
+replicaCount: 2
+
+image:
+  repository: gcr.io/your-project/oci-ipfs-registry
+  pullPolicy: Always
+  tag: "latest"
+
+# Internal TCP Load Balancer
+service:
+  type: LoadBalancer
+  port: 5000
+  annotations:
+    cloud.google.com/load-balancer-type: "Internal"
+    networking.gke.io/load-balancer-type: "Internal"
+
+# HTTPS via GKE Ingress with Google-managed cert
+ingress:
+  enabled: true
+  className: gce-internal  # Internal HTTPS LB
+  annotations:
+    # Use Google-managed certificate
+    networking.gke.io/managed-certificates: registry-cert
+    # Internal ingress
+    kubernetes.io/ingress.class: "gce-internal"
+    # Static IP (optional, create with: gcloud compute addresses create registry-ip --region=REGION --subnet=SUBNET)
+    kubernetes.io/ingress.regional-static-ip-name: registry-ip
+  hosts:
+    - host: registry.internal.yourcompany.com
+      paths:
+        - path: /
+          pathType: Prefix
+  tls:
+    - hosts:
+        - registry.internal.yourcompany.com
+
+resources:
+  limits:
+    cpu: 1000m
+    memory: 1Gi
+  requests:
+    cpu: 250m
+    memory: 256Mi
+
+persistence:
+  enabled: true
+  storageClass: standard-rwo  # Or premium-rwo for SSD
+  size: 50Gi
+
+ipfs:
+  apiUrl: http://ipfs:5001
+  timeout: 30s
+  pinContent: true
+
+logging:
+  level: info
+  format: json
+
+# Workload Identity for GCS access (if needed)
+serviceAccount:
+  create: true
+  annotations:
+    iam.gke.io/gcp-service-account: registry-sa@your-project.iam.gserviceaccount.com
+
+# Spread across zones
+affinity:
+  podAntiAffinity:
+    preferredDuringSchedulingIgnoredDuringExecution:
+      - weight: 100
+        podAffinityTerm:
+          labelSelector:
+            matchLabels:
+              app.kubernetes.io/name: oci-ipfs-registry
+          topologyKey: topology.kubernetes.io/zone
+
+# Additional manifest for Google-managed certificate
+# Apply separately: kubectl apply -f managed-cert.yaml
+#
+# apiVersion: networking.gke.io/v1
+# kind: ManagedCertificate
+# metadata:
+#   name: registry-cert
+# spec:
+#   domains:
+#     - registry.internal.yourcompany.com

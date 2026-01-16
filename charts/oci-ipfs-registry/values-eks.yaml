@@ -1,0 +1,101 @@
+# AWS EKS Production Configuration
+#
+# Prerequisites:
+# 1. AWS Load Balancer Controller installed
+# 2. cert-manager installed with Route53 DNS01 solver
+# 3. ExternalDNS (optional) for automatic DNS record creation
+# 4. Route53 Private Hosted Zone for internal DNS
+#
+# Usage:
+#   helm install registry ./charts/oci-ipfs-registry \
+#     -f values-eks.yaml \
+#     --set ingress.hosts[0].host=registry.internal.yourcompany.com \
+#     --set ingress.tls[0].hosts[0]=registry.internal.yourcompany.com
+
+replicaCount: 2
+
+image:
+  repository: your-ecr-repo.dkr.ecr.region.amazonaws.com/oci-ipfs-registry
+  pullPolicy: Always
+  tag: "latest"
+
+# Use internal NLB for node-accessible registry
+service:
+  type: LoadBalancer
+  port: 5000
+  annotations:
+    # Internal load balancer
+    service.beta.kubernetes.io/aws-load-balancer-internal: "true"
+    service.beta.kubernetes.io/aws-load-balancer-type: "nlb"
+    service.beta.kubernetes.io/aws-load-balancer-scheme: "internal"
+    # Cross-zone load balancing
+    service.beta.kubernetes.io/aws-load-balancer-cross-zone-load-balancing-enabled: "true"
+    # Health check
+    service.beta.kubernetes.io/aws-load-balancer-healthcheck-protocol: "HTTP"
+    service.beta.kubernetes.io/aws-load-balancer-healthcheck-path: "/v2/"
+
+# Alternative: Use ALB Ingress for HTTPS termination
+ingress:
+  enabled: true
+  className: alb
+  annotations:
+    # Internal ALB
+    alb.ingress.kubernetes.io/scheme: internal
+    alb.ingress.kubernetes.io/target-type: ip
+    # TLS
+    alb.ingress.kubernetes.io/listen-ports: '[{"HTTPS":443}]'
+    alb.ingress.kubernetes.io/certificate-arn: arn:aws:acm:region:account:certificate/cert-id
+    # Health check
+    alb.ingress.kubernetes.io/healthcheck-path: /v2/
+    alb.ingress.kubernetes.io/healthcheck-protocol: HTTP
+    # ExternalDNS (if installed)
+    external-dns.alpha.kubernetes.io/hostname: registry.internal.yourcompany.com
+  hosts:
+    - host: registry.internal.yourcompany.com
+      paths:
+        - path: /
+          pathType: Prefix
+  tls:
+    - hosts:
+        - registry.internal.yourcompany.com
+      # ACM handles TLS termination at ALB, no secret needed
+
+resources:
+  limits:
+    cpu: 1000m
+    memory: 1Gi
+  requests:
+    cpu: 250m
+    memory: 256Mi
+
+persistence:
+  enabled: true
+  storageClass: gp3
+  size: 50Gi
+
+# IPFS running as separate deployment or external
+ipfs:
+  apiUrl: http://ipfs:5001
+  timeout: 30s
+  pinContent: true
+
+# Production logging
+logging:
+  level: info
+  format: json
+
+# Pod disruption budget for HA
+podDisruptionBudget:
+  enabled: true
+  minAvailable: 1
+
+# Affinity for spreading across AZs
+affinity:
+  podAntiAffinity:
+    preferredDuringSchedulingIgnoredDuringExecution:
+      - weight: 100
+        podAffinityTerm:
+          labelSelector:
+            matchLabels:
+              app.kubernetes.io/name: oci-ipfs-registry
+          topologyKey: topology.kubernetes.io/zone

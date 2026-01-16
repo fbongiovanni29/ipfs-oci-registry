@@ -1,0 +1,47 @@
+{{- if .Values.ipfs.deploy.enabled }}
+---
+# Main IPFS service for API access
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "oci-ipfs-registry.fullname" . }}-ipfs
+  labels:
+    {{- include "oci-ipfs-registry.labels" . | nindent 4 }}
+    app.kubernetes.io/component: ipfs
+spec:
+  type: ClusterIP
+  ports:
+    - port: 5001
+      targetPort: api
+      name: api
+    - port: 8080
+      targetPort: gateway
+      name: gateway
+  selector:
+    {{- include "oci-ipfs-registry.selectorLabels" . | nindent 4 }}
+    app.kubernetes.io/component: ipfs
+---
+{{- if eq .Values.ipfs.deploy.mode "daemonset" }}
+# Headless service for peer discovery in DaemonSet mode
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "oci-ipfs-registry.fullname" . }}-ipfs-headless
+  labels:
+    {{- include "oci-ipfs-registry.labels" . | nindent 4 }}
+    app.kubernetes.io/component: ipfs
+spec:
+  type: ClusterIP
+  clusterIP: None  # Headless
+  ports:
+    - port: 4001
+      targetPort: swarm
+      name: swarm
+    - port: 5001
+      targetPort: api
+      name: api
+  selector:
+    {{- include "oci-ipfs-registry.selectorLabels" . | nindent 4 }}
+    app.kubernetes.io/component: ipfs
+{{- end }}
+{{- end }}

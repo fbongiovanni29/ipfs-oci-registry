@@ -1,0 +1,17 @@
+{{- if and .Values.persistence.enabled (eq .Values.registry.mode "deployment") }}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "oci-ipfs-registry.fullname" . }}-data
+  labels:
+    {{- include "oci-ipfs-registry.labels" . | nindent 4 }}
+spec:
+  accessModes:
+    - {{ .Values.persistence.accessMode }}
+  {{- if .Values.persistence.storageClass }}
+  storageClassName: {{ .Values.persistence.storageClass | quote }}
+  {{- end }}
+  resources:
+    requests:
+      storage: {{ .Values.persistence.size }}
+{{- end }}

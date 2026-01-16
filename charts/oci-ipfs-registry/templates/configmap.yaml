@@ -1,0 +1,49 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "oci-ipfs-registry.fullname" . }}-config
+  labels:
+    {{- include "oci-ipfs-registry.labels" . | nindent 4 }}
+data:
+  config.yaml: |
+    server:
+      address: "0.0.0.0:5000"
+
+    storage:
+      database: /data/registry.db
+      temp_dir: /data/uploads
+
+    ipfs:
+      {{- if .Values.ipfs.deploy.enabled }}
+      api_url: "http://{{ include "oci-ipfs-registry.fullname" . }}-ipfs:5001"
+      {{- else }}
+      api_url: {{ .Values.ipfs.apiUrl | quote }}
+      {{- end }}
+      timeout: {{ .Values.ipfs.timeout }}
+      pin_content: {{ .Values.ipfs.pinContent }}
+
+    federation:
+      enabled: {{ .Values.federation.enabled }}
+      topic: {{ .Values.federation.topic | quote }}
+      query_timeout: {{ .Values.federation.queryTimeout }}
+      announce_new_content: {{ .Values.federation.announceNewContent }}
+
+    upstreams:
+      {{- range $name, $config := .Values.upstreams }}
+      {{ $name }}:
+        url: {{ $config.url | quote }}
+        {{- if $config.auth }}
+        auth:
+          type: {{ $config.auth.type | quote }}
+          {{- if $config.auth.tokenUrl }}
+          token_url: {{ $config.auth.tokenUrl | quote }}
+          {{- end }}
+          {{- if $config.auth.service }}
+          service: {{ $config.auth.service | quote }}
+          {{- end }}
+        {{- end }}
+      {{- end }}
+
+    logging:
+      level: {{ .Values.logging.level | quote }}
+      format: {{ .Values.logging.format | quote }}

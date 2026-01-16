@@ -1,0 +1,53 @@
+# Docker Compose configuration
+# IPFS hostname resolves to the ipfs service
+
+server:
+  address: "0.0.0.0:5000"
+
+storage:
+  database: /data/registry.db
+  temp_dir: /data/uploads
+
+ipfs:
+  api_url: http://ipfs:5001
+  timeout: 30s
+  pin_content: true
+
+federation:
+  enabled: true
+  topic: /oci-registry/v1/mappings
+  query_timeout: 500ms
+  announce_new_content: true
+
+upstreams:
+  docker.io:
+    url: https://registry-1.docker.io
+    auth:
+      type: bearer
+      token_url: https://auth.docker.io/token
+      service: registry.docker.io
+
+  ghcr.io:
+    url: https://ghcr.io
+    auth:
+      type: bearer
+      token_url: https://ghcr.io/token
+      service: ghcr.io
+
+  gcr.io:
+    url: https://gcr.io
+    auth:
+      type: bearer
+      token_url: https://gcr.io/v2/token
+      service: gcr.io
+
+  quay.io:
+    url: https://quay.io
+    auth:
+      type: bearer
+      token_url: https://quay.io/v2/auth
+      service: quay.io
+
+logging:
+  level: info
+  format: json

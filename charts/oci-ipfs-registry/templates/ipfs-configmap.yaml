@@ -1,0 +1,67 @@
+{{- if .Values.ipfs.deploy.enabled }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "oci-ipfs-registry.fullname" . }}-ipfs-config
+  labels:
+    {{- include "oci-ipfs-registry.labels" . | nindent 4 }}
+data:
+  # IPFS configuration script - runs on startup
+  configure-ipfs.sh: |
+    #!/bin/sh
+    set -e
+
+    # Initialize IPFS if not already done
+    if [ ! -f /data/ipfs/config ]; then
+      ipfs init --profile={{ .Values.ipfs.deploy.profile }}
+    fi
+
+    # Configure API to listen on all interfaces
+    ipfs config Addresses.API /ip4/0.0.0.0/tcp/5001
+    ipfs config Addresses.Gateway /ip4/0.0.0.0/tcp/8080
+
+    # Enable pubsub for federation
+    ipfs config --json Pubsub.Enabled true
+
+    # Configure swarm for cluster peering
+    {{- if eq .Values.ipfs.deploy.mode "daemonset" }}
+    # In DaemonSet mode, configure peering with other nodes
+    ipfs config --json Peering.Peers '[]'
+
+    # Lower resource usage per node
+    ipfs config --json Swarm.ConnMgr.LowWater 50
+    ipfs config --json Swarm.ConnMgr.HighWater 100
+    ipfs config --json Swarm.ConnMgr.GracePeriod '"60s"'
+    {{- end }}
+
+    # Disable unnecessary features for registry use case
+    ipfs config --json Discovery.MDNS.Enabled {{ .Values.ipfs.deploy.mdns }}
+
+    # Fix permissions for ipfs user (uid 1000)
+    chown -R 1000:1000 /data/ipfs
+
+    echo "IPFS configured successfully"
+
+  # Bootstrap script for cluster peer discovery
+  {{- if eq .Values.ipfs.deploy.mode "daemonset" }}
+  bootstrap-peers.sh: |
+    #!/bin/sh
+    # Discover and connect to other IPFS nodes in the cluster
+    HEADLESS_SVC="{{ include "oci-ipfs-registry.fullname" . }}-ipfs-headless.{{ .Release.Namespace }}.svc.cluster.local"
+
+    while true; do
+      # Get peer IDs from other nodes
+      for ip in $(getent hosts $HEADLESS_SVC | awk '{print $1}'); do
+        if [ "$ip" != "$POD_IP" ]; then
+          # Try to get peer ID from the other node
+          PEER_ID=$(wget -q -O - "http://${ip}:5001/api/v0/id" 2>/dev/null | grep -o '"ID":"[^"]*"' | cut -d'"' -f4)
+          if [ -n "$PEER_ID" ]; then
+            echo "Connecting to peer: $PEER_ID at $ip"
+            ipfs swarm connect "/ip4/${ip}/tcp/4001/p2p/${PEER_ID}" 2>/dev/null || true
+          fi
+        fi
+      done
+      sleep 30
+    done
+  {{- end }}
+{{- end }}

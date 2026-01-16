@@ -1,0 +1,256 @@
+# Default values for oci-ipfs-registry
+
+replicaCount: 1
+
+# Registry deployment mode: "deployment" or "daemonset"
+# DaemonSet mode runs one registry per node for true decentralization
+# Use with ipfs.deploy.mode=daemonset for full P2P within cluster
+registry:
+  mode: deployment  # deployment | daemonset
+
+  # DaemonSet-specific settings
+  daemonset:
+    # Host path for local BoltDB storage (one per node)
+    hostPath: /var/lib/oci-registry
+
+image:
+  repository: oci-ipfs-registry
+  pullPolicy: IfNotPresent
+  tag: ""  # Defaults to chart appVersion
+
+imagePullSecrets: []
+nameOverride: ""
+fullnameOverride: ""
+
+serviceAccount:
+  create: true
+  annotations: {}
+  name: ""
+
+podAnnotations: {}
+
+# Extra labels to add to pods (useful for service mesh, monitoring)
+podLabels: {}
+  # sidecar.istio.io/inject: "true"
+  # prometheus.io/scrape: "true"
+
+podSecurityContext:
+  fsGroup: 1000
+
+securityContext:
+  runAsNonRoot: true
+  runAsUser: 1000
+  readOnlyRootFilesystem: true
+  allowPrivilegeEscalation: false
+  capabilities:
+    drop:
+      - ALL
+
+# Priority class for pod scheduling
+priorityClassName: ""
+
+# Extra environment variables
+extraEnv: []
+  # - name: HTTP_PROXY
+  #   value: "http://proxy.example.com:8080"
+  # - name: MY_SECRET
+  #   valueFrom:
+  #     secretKeyRef:
+  #       name: my-secret
+  #       key: password
+
+# Extra volumes to add to the pod
+extraVolumes: []
+  # - name: custom-certs
+  #   secret:
+  #     secretName: my-ca-certs
+  # - name: custom-config
+  #   configMap:
+  #     name: my-config
+
+# Extra volume mounts for the registry container
+extraVolumeMounts: []
+  # - name: custom-certs
+  #   mountPath: /etc/ssl/custom
+  #   readOnly: true
+
+service:
+  type: ClusterIP
+  port: 5000
+
+ingress:
+  enabled: false
+  className: ""
+  annotations: {}
+    # kubernetes.io/ingress.class: nginx
+    # cert-manager.io/cluster-issuer: letsencrypt-prod
+  hosts:
+    - host: registry.local
+      paths:
+        - path: /
+          pathType: Prefix
+  tls: []
+    # - secretName: registry-tls
+    #   hosts:
+    #     - registry.local
+
+resources:
+  limits:
+    cpu: 500m
+    memory: 512Mi
+  requests:
+    cpu: 100m
+    memory: 128Mi
+
+autoscaling:
+  enabled: false
+  minReplicas: 1
+  maxReplicas: 5
+  targetCPUUtilizationPercentage: 80
+
+nodeSelector: {}
+
+tolerations: []
+
+affinity: {}
+
+# Topology spread constraints for better HA
+topologySpreadConstraints: []
+  # - maxSkew: 1
+  #   topologyKey: topology.kubernetes.io/zone
+  #   whenUnsatisfiable: ScheduleAnyway
+  #   labelSelector:
+  #     matchLabels:
+  #       app.kubernetes.io/name: oci-ipfs-registry
+
+# Liveness probe configuration
+livenessProbe:
+  httpGet:
+    path: /v2/
+    port: http
+  initialDelaySeconds: 10
+  periodSeconds: 10
+  timeoutSeconds: 5
+  failureThreshold: 3
+
+# Readiness probe configuration
+readinessProbe:
+  httpGet:
+    path: /v2/
+    port: http
+  initialDelaySeconds: 5
+  periodSeconds: 5
+  timeoutSeconds: 3
+  failureThreshold: 3
+
+# Network policy (requires network plugin that supports NetworkPolicy)
+networkPolicy:
+  enabled: false
+  # Allow ingress from specific namespaces
+  ingressNamespaceSelector: {}
+    # kubernetes.io/metadata.name: my-namespace
+  # Allow ingress from specific pods
+  ingressPodSelector: {}
+  # Additional ingress rules
+  extraIngress: []
+  # Additional egress rules (default allows all egress)
+  extraEgress: []
+
+# Persistent storage for registry database
+persistence:
+  enabled: true
+  storageClass: ""
+  accessMode: ReadWriteOnce
+  size: 10Gi
+
+# IPFS configuration
+ipfs:
+  # URL to IPFS API - auto-configured if deploy.enabled=true
+  apiUrl: http://ipfs:5001
+  timeout: 30s
+  pinContent: true
+
+  # Deploy IPFS as part of this chart
+  deploy:
+    enabled: false  # Set to true to deploy IPFS with the registry
+
+    # Mode: "deployment" (single instance) or "daemonset" (P2P within cluster)
+    mode: deployment
+
+    image:
+      repository: ipfs/kubo
+      tag: v0.27.0
+
+    # IPFS profile: server, lowpower, badgerds, etc.
+    profile: server
+
+    # Enable mDNS for local peer discovery
+    mdns: false
+
+    resources:
+      requests:
+        cpu: 100m
+        memory: 256Mi
+      limits:
+        cpu: 500m
+        memory: 512Mi
+
+    persistence:
+      enabled: true
+      # For deployment mode: PVC settings
+      storageClass: ""
+      accessMode: ReadWriteOnce
+      size: 20Gi
+      # For daemonset mode: hostPath
+      hostPath: /var/lib/ipfs
+
+# Federation via IPFS pubsub
+federation:
+  enabled: true
+  topic: /oci-registry/v1/mappings
+  queryTimeout: 500ms
+  announceNewContent: true
+
+# Upstream registries configuration
+upstreams:
+  docker.io:
+    url: https://registry-1.docker.io
+    auth:
+      type: bearer
+      tokenUrl: https://auth.docker.io/token
+      service: registry.docker.io
+  ghcr.io:
+    url: https://ghcr.io
+    auth:
+      type: bearer
+      tokenUrl: https://ghcr.io/token
+      service: ghcr.io
+  # Example: private registry with credentials from K8s Secret
+  # private.registry.com:
+  #   url: https://private.registry.com
+  #   auth:
+  #     type: basic
+  #     # Option 1: inline (not recommended for production)
+  #     username: myuser
+  #     password: mypassword
+  #     # Option 2: from K8s Secret (recommended)
+  #     usernameSecretRef:
+  #       name: registry-creds
+  #       key: username
+  #     passwordSecretRef:
+  #       name: registry-creds
+  #       key: password
+
+# Reference to K8s Secret containing upstream credentials
+# Creates environment variables that can be referenced in config
+upstreamCredentialsSecret: ""
+  # If set, mounts the secret and makes keys available as env vars
+  # Example: set to "upstream-creds" and create secret with:
+  #   PRIVATE_REGISTRY_USER: myuser
+  #   PRIVATE_REGISTRY_PASS: mypassword
+  # Then in upstreams use: ${PRIVATE_REGISTRY_USER}
+
+# Logging configuration
+logging:
+  level: info
+  format: json

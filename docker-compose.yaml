@@ -1,0 +1,51 @@
+version: "3.8"
+
+services:
+  registry:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: oci-ipfs-registry
+    ports:
+      - "5000:5000"
+    volumes:
+      - ./deploy/config.docker.yaml:/app/config.yaml:ro
+      - registry-data:/data
+    depends_on:
+      ipfs:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - registry-net
+
+  ipfs:
+    image: ipfs/kubo:v0.27.0
+    container_name: ipfs-node
+    ports:
+      - "4001:4001"      # Swarm
+      - "4001:4001/udp"  # Swarm UDP
+      - "5001:5001"      # API (internal only in prod)
+      - "8080:8080"      # Gateway
+    volumes:
+      - ipfs-data:/data/ipfs
+      - ipfs-staging:/export
+    environment:
+      - IPFS_PROFILE=server
+    command: ["daemon", "--migrate=true", "--enable-pubsub-experiment"]
+    healthcheck:
+      test: ["CMD", "ipfs", "id"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+    networks:
+      - registry-net
+
+volumes:
+  registry-data:
+  ipfs-data:
+  ipfs-staging:
+
+networks:
+  registry-net:
+    driver: bridge

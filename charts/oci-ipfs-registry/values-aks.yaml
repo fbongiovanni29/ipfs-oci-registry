@@ -1,0 +1,101 @@
+# Azure AKS Production Configuration
+#
+# Prerequisites:
+# 1. AKS cluster with Azure CNI
+# 2. cert-manager installed OR Azure Key Vault for certs
+# 3. Azure Private DNS Zone linked to VNet
+# 4. Application Gateway Ingress Controller (AGIC) or nginx-ingress
+#
+# Usage:
+#   helm install registry ./charts/oci-ipfs-registry \
+#     -f values-aks.yaml \
+#     --set ingress.hosts[0].host=registry.internal.yourcompany.com \
+#     --set ingress.tls[0].hosts[0]=registry.internal.yourcompany.com
+
+replicaCount: 2
+
+image:
+  repository: yourregistry.azurecr.io/oci-ipfs-registry
+  pullPolicy: Always
+  tag: "latest"
+
+# Internal Azure Load Balancer
+service:
+  type: LoadBalancer
+  port: 5000
+  annotations:
+    service.beta.kubernetes.io/azure-load-balancer-internal: "true"
+    # Specify subnet for ILB (optional)
+    # service.beta.kubernetes.io/azure-load-balancer-internal-subnet: "your-subnet"
+    # Health probe
+    service.beta.kubernetes.io/azure-load-balancer-health-probe-request-path: "/v2/"
+
+# HTTPS via Application Gateway Ingress Controller
+ingress:
+  enabled: true
+  className: azure-application-gateway
+  annotations:
+    # Use private IP
+    appgw.ingress.kubernetes.io/use-private-ip: "true"
+    # Backend protocol
+    appgw.ingress.kubernetes.io/backend-protocol: "http"
+    # Health probe path
+    appgw.ingress.kubernetes.io/health-probe-path: "/v2/"
+    # SSL redirect
+    appgw.ingress.kubernetes.io/ssl-redirect: "true"
+    # Key Vault certificate (if using Azure Key Vault)
+    # appgw.ingress.kubernetes.io/appgw-ssl-certificate: "registry-cert"
+  hosts:
+    - host: registry.internal.yourcompany.com
+      paths:
+        - path: /
+          pathType: Prefix
+  tls:
+    - secretName: registry-tls
+      hosts:
+        - registry.internal.yourcompany.com
+
+resources:
+  limits:
+    cpu: 1000m
+    memory: 1Gi
+  requests:
+    cpu: 250m
+    memory: 256Mi
+
+persistence:
+  enabled: true
+  storageClass: managed-premium  # Or managed-standard
+  size: 50Gi
+
+ipfs:
+  apiUrl: http://ipfs:5001
+  timeout: 30s
+  pinContent: true
+
+logging:
+  level: info
+  format: json
+
+# Azure Workload Identity (AKS 1.22+)
+serviceAccount:
+  create: true
+  annotations:
+    azure.workload.identity/client-id: "your-client-id"
+
+podLabels:
+  azure.workload.identity/use: "true"
+
+# Spread across availability zones
+affinity:
+  podAntiAffinity:
+    preferredDuringSchedulingIgnoredDuringExecution:
+      - weight: 100
+        podAffinityTerm:
+          labelSelector:
+            matchLabels:
+              app.kubernetes.io/name: oci-ipfs-registry
+          topologyKey: topology.kubernetes.io/zone
+
+# Azure-specific: Pull from ACR without imagePullSecrets
+# Requires: az aks update -n myAKSCluster -g myResourceGroup --attach-acr yourregistry

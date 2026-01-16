@@ -1,0 +1,47 @@
+# Binaries
+/oci-ipfs-registry
+/bin/
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+
+# Test binary
+*.test
+
+# Output of go coverage tool
+*.out
+
+# Dependency directories
+vendor/
+
+# Go workspace files
+go.work
+go.work.sum
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Local config
+config.yaml
+config.local.yaml
+
+# Data directories (keep structure but ignore contents)
+/data/
+*.db
+
+# Temporary files
+/tmp/
+*.tmp
+
+# Logs
+*.log

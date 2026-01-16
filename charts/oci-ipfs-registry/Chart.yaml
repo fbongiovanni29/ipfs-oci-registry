@@ -1,0 +1,15 @@
+apiVersion: v2
+name: oci-ipfs-registry
+description: OCI Distribution registry with IPFS backend storage
+type: application
+version: 0.1.0
+appVersion: "1.0.0"
+keywords:
+  - oci
+  - docker
+  - registry
+  - ipfs
+  - container
+home: https://github.com/containerish/ipfs-oci-registry
+maintainers:
+  - name: containerish

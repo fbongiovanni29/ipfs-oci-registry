@@ -1,0 +1,88 @@
+# IPFS OCI Registry Configuration
+
+server:
+  # Address to listen on
+  address: ":5000"
+
+  # TLS configuration (optional)
+  tls:
+    enabled: false
+    cert: /path/to/cert.pem
+    key: /path/to/key.pem
+
+storage:
+  # Path to BoltDB database file
+  database: /var/lib/oci-ipfs/registry.db
+
+  # Temporary directory for uploads
+  temp_dir: /var/lib/oci-ipfs/uploads
+
+ipfs:
+  # Kubo HTTP API URL
+  api_url: http://localhost:5001
+
+  # Timeout for IPFS operations
+  timeout: 30s
+
+  # Pin content to prevent garbage collection
+  pin_content: true
+
+federation:
+  # Enable federation (peer-to-peer sharing)
+  enabled: true
+
+  # Pubsub topic for federation messages
+  topic: /oci-registry/v1/mappings
+
+  # Timeout for querying federation peers
+  query_timeout: 500ms
+
+  # Announce newly cached content to federation
+  announce_new_content: true
+
+# Upstream registries to proxy/mirror
+upstreams:
+  # Docker Hub
+  docker.io:
+    url: https://registry-1.docker.io
+    auth:
+      type: bearer
+      token_url: https://auth.docker.io/token
+      service: registry.docker.io
+
+  # GitHub Container Registry
+  ghcr.io:
+    url: https://ghcr.io
+    auth:
+      type: bearer
+      token_url: https://ghcr.io/token
+
+  # Google Container Registry
+  gcr.io:
+    url: https://gcr.io
+    auth:
+      type: bearer
+      token_url: https://gcr.io/v2/token
+      service: gcr.io
+
+  # Quay.io
+  quay.io:
+    url: https://quay.io
+    auth:
+      type: bearer
+      token_url: https://quay.io/v2/auth
+
+  # Example private registry
+  # my-private.registry.com:
+  #   url: https://my-private.registry.com
+  #   auth:
+  #     type: basic
+  #     username: ${REGISTRY_USERNAME}
+  #     password: ${REGISTRY_PASSWORD}
+
+logging:
+  # Log level: debug, info, warn, error
+  level: info
+
+  # Log format: json, console
+  format: console
