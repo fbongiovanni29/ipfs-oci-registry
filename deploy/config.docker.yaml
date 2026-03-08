@@ -75,6 +75,10 @@ upstreams:
       token_url: https://mcr.microsoft.com/v2/token
       service: mcr.microsoft.com
 
+metrics:
+  enabled: true
+  path: /metrics
+
 logging:
   level: info
   format: json

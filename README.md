@@ -541,6 +541,7 @@ Full [OCI Distribution Spec](https://github.com/opencontainers/distribution-spec
 | `/v2/{name}/blobs/{digest}` | HEAD | Check blob existence |
 | `/v2/{name}/blobs/uploads/` | POST | Initiate blob upload |
 | `/v2/{name}/blobs/uploads/{uuid}` | PATCH/PUT | Upload blob chunks |
+| `/metrics` | GET | Prometheus metrics (when enabled) |
 
 ---
 
@@ -608,6 +609,39 @@ gc:
 
 Also cleans up abandoned upload sessions (older than 24 hours).
 
+### Prometheus Metrics
+
+Full observability with Prometheus-compatible `/metrics` endpoint:
+
+```yaml
+metrics:
+  enabled: true
+  path: /metrics
+```
+
+Exposed metrics:
+
+| Metric | Type | Description |
+|--------|------|-------------|
+| `registry_http_requests_total` | Counter | HTTP requests by method, route, status |
+| `registry_http_request_duration_seconds` | Histogram | Request latency |
+| `registry_http_response_size_bytes` | Histogram | Response payload size |
+| `registry_resolve_total` | Counter | Content resolution by type (blob/manifest), source (local/federation/upstream), result (hit/miss) |
+| `registry_ipfs_operations_total` | Counter | IPFS API calls by operation and result |
+| `registry_ipfs_operation_duration_seconds` | Histogram | IPFS operation latency |
+| `registry_federation_messages_total` | Counter | Federation pubsub messages by direction and type |
+| `registry_federation_query_duration_seconds` | Histogram | Federation query latency |
+| `registry_upstream_requests_total` | Counter | Upstream registry requests by registry, type, result |
+| `registry_upstream_request_duration_seconds` | Histogram | Upstream request latency |
+| `registry_gc_runs_total` | Counter | GC sweep count |
+| `registry_gc_deleted_total` | Counter | Items deleted by GC |
+| `registry_gc_duration_seconds` | Histogram | GC sweep duration |
+| `registry_ratelimit_blocked_total` | Counter | Requests blocked by rate limiter |
+| `registry_storage_blobs` | Gauge | Total blob mappings in store |
+| `registry_storage_tags` | Gauge | Total tag references |
+| `registry_storage_repositories` | Gauge | Total repositories |
+| `registry_storage_db_size_bytes` | Gauge | BoltDB file size |
+
 ### Upload Safety
 
 Concurrent PATCH/PUT requests to the same upload session are serialized with per-upload mutexes. No data corruption from parallel chunk uploads.
@@ -639,7 +673,7 @@ go test ./... -cover
 - [x] Per-IP rate limiting
 - [x] Tag TTL with stale-while-revalidate
 - [x] Upload concurrency safety
-- [ ] Prometheus metrics endpoint
+- [x] Prometheus metrics endpoint
 - [ ] Web UI for browsing images
 - [ ] Signature verification (cosign/notation)
 - [ ] S3-compatible storage backend option

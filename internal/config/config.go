@@ -16,6 +16,7 @@ type Config struct {
 	Auth       AuthConfig                `yaml:"auth"`
 	RateLimit  RateLimitConfig           `yaml:"rate_limit"`
 	GC         GCConfig                  `yaml:"gc"`
+	Metrics    MetricsConfig             `yaml:"metrics"`
 	Upstreams  map[string]UpstreamConfig `yaml:"upstreams"`
 	Logging    LoggingConfig             `yaml:"logging"`
 }
@@ -80,6 +81,12 @@ type GCConfig struct {
 	DryRun   bool          `yaml:"dry_run"`
 }
 
+// MetricsConfig configures Prometheus metrics.
+type MetricsConfig struct {
+	Enabled bool   `yaml:"enabled"`
+	Path    string `yaml:"path"`
+}
+
 // UpstreamConfig configures an upstream registry.
 type UpstreamConfig struct {
 	URL  string             `yaml:"url"`
@@ -141,6 +148,10 @@ func DefaultConfig() *Config {
 			Interval: 1 * time.Hour,
 			MaxAge:   7 * 24 * time.Hour, // 7 days
 			DryRun:   false,
+		},
+		Metrics: MetricsConfig{
+			Enabled: true,
+			Path:    "/metrics",
 		},
 		Upstreams: map[string]UpstreamConfig{
 			"docker.io": {

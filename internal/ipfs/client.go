@@ -11,6 +11,8 @@ import (
 	"net/http"
 	"net/url"
 	"time"
+
+	"github.com/fbongiovanni29/ipfs-oci-registry/internal/metrics"
 )
 
 // Client communicates with a Kubo (go-ipfs) node via the HTTP API.
@@ -76,8 +78,20 @@ func (c *Client) ID(ctx context.Context) (*IDResponse, error) {
 	return &result, nil
 }
 
+func recordIPFS(op string, start time.Time, err error) {
+	result := "success"
+	if err != nil {
+		result = "error"
+	}
+	metrics.IPFSOperationsTotal.WithLabelValues(op, result).Inc()
+	metrics.IPFSOperationDuration.WithLabelValues(op).Observe(time.Since(start).Seconds())
+}
+
 // Add adds content to IPFS and returns the CID.
-func (c *Client) Add(ctx context.Context, r io.Reader) (*AddResponse, error) {
+func (c *Client) Add(ctx context.Context, r io.Reader) (_ *AddResponse, err error) {
+	start := time.Now()
+	defer func() { recordIPFS("add", start, err) }()
+
 	// Create multipart form
 	var buf bytes.Buffer
 	writer := multipart.NewWriter(&buf)
@@ -87,11 +101,11 @@ func (c *Client) Add(ctx context.Context, r io.Reader) (*AddResponse, error) {
 		return nil, fmt.Errorf("failed to create form file: %w", err)
 	}
 
-	if _, err := io.Copy(part, r); err != nil {
+	if _, err = io.Copy(part, r); err != nil {
 		return nil, fmt.Errorf("failed to copy content: %w", err)
 	}
 
-	if err := writer.Close(); err != nil {
+	if err = writer.Close(); err != nil {
 		return nil, fmt.Errorf("failed to close multipart writer: %w", err)
 	}
 
@@ -120,7 +134,7 @@ func (c *Client) Add(ctx context.Context, r io.Reader) (*AddResponse, error) {
 	}
 
 	var result AddResponse
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+	if err = json.NewDecoder(resp.Body).Decode(&result); err != nil {
 		return nil, fmt.Errorf("failed to decode add response: %w", err)
 	}
 
@@ -128,7 +142,10 @@ func (c *Client) Add(ctx context.Context, r io.Reader) (*AddResponse, error) {
 }
 
 // Cat retrieves content from IPFS by CID.
-func (c *Client) Cat(ctx context.Context, cid string) (io.ReadCloser, error) {
+func (c *Client) Cat(ctx context.Context, cid string) (_ io.ReadCloser, err error) {
+	start := time.Now()
+	defer func() { recordIPFS("cat", start, err) }()
+
 	params := url.Values{}
 	params.Set("arg", cid)
 
@@ -147,7 +164,10 @@ func (c *Client) Cat(ctx context.Context, cid string) (io.ReadCloser, error) {
 }
 
 // Pin pins a CID to prevent garbage collection.
-func (c *Client) Pin(ctx context.Context, cid string) error {
+func (c *Client) Pin(ctx context.Context, cid string) (err error) {
+	start := time.Now()
+	defer func() { recordIPFS("pin", start, err) }()
+
 	params := url.Values{}
 	params.Set("arg", cid)
 
@@ -166,7 +186,10 @@ func (c *Client) Pin(ctx context.Context, cid string) error {
 }
 
 // Unpin unpins a CID.
-func (c *Client) Unpin(ctx context.Context, cid string) error {
+func (c *Client) Unpin(ctx context.Context, cid string) (err error) {
+	start := time.Now()
+	defer func() { recordIPFS("unpin", start, err) }()
+
 	params := url.Values{}
 	params.Set("arg", cid)
 
@@ -185,7 +208,10 @@ func (c *Client) Unpin(ctx context.Context, cid string) error {
 }
 
 // Stat returns information about a CID without fetching the content.
-func (c *Client) Stat(ctx context.Context, cid string) (int64, error) {
+func (c *Client) Stat(ctx context.Context, cid string) (_ int64, err error) {
+	start := time.Now()
+	defer func() { recordIPFS("stat", start, err) }()
+
 	params := url.Values{}
 	params.Set("arg", cid)
 

@@ -134,6 +134,11 @@ upstreams:
   #     username: ${REGISTRY_USERNAME}
   #     password: ${REGISTRY_PASSWORD}
 
+# Prometheus metrics (optional)
+metrics:
+  enabled: true
+  path: /metrics    # Endpoint path for Prometheus scraping
+
 logging:
   # Log level: debug, info, warn, error
   level: info

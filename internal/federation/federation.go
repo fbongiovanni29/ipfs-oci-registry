@@ -9,6 +9,7 @@ import (
 
 	"github.com/fbongiovanni29/ipfs-oci-registry/internal/config"
 	"github.com/fbongiovanni29/ipfs-oci-registry/internal/ipfs"
+	"github.com/fbongiovanni29/ipfs-oci-registry/internal/metrics"
 	"github.com/fbongiovanni29/ipfs-oci-registry/internal/types"
 	"github.com/rs/zerolog"
 )
@@ -253,6 +254,8 @@ func (f *Federation) processMessage(msg ipfs.PubsubMessage) {
 		return
 	}
 
+	metrics.FederationMessagesTotal.WithLabelValues("received", fedMsg.Type).Inc()
+
 	switch fedMsg.Type {
 	case "mapping":
 		f.handleMappingAnnouncement(fedMsg)
@@ -359,6 +362,9 @@ func (f *Federation) handleResponse(msg types.FederationMessage) {
 
 // QueryDigest queries the federation for a digest→CID mapping.
 func (f *Federation) QueryDigest(ctx context.Context, digest string) (*types.BlobMapping, error) {
+	start := time.Now()
+	defer func() { metrics.FederationQueryDuration.Observe(time.Since(start).Seconds()) }()
+
 	// Check cache first
 	if mapping, ok := f.cache.Get(digest); ok {
 		return mapping, nil
@@ -377,6 +383,7 @@ func (f *Federation) QueryDigest(ctx context.Context, digest string) (*types.Blo
 		Timestamp: time.Now(),
 	}
 
+	metrics.FederationMessagesTotal.WithLabelValues("sent", "query").Inc()
 	if err := f.publish(query); err != nil {
 		return nil, err
 	}
@@ -406,6 +413,7 @@ func (f *Federation) Announce(mapping *types.BlobMapping) error {
 		Timestamp: time.Now(),
 	}
 
+	metrics.FederationMessagesTotal.WithLabelValues("sent", "mapping").Inc()
 	return f.publish(msg)
 }
 

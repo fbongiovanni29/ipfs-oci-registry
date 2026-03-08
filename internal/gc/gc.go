@@ -6,6 +6,7 @@ import (
 
 	"github.com/fbongiovanni29/ipfs-oci-registry/internal/config"
 	"github.com/fbongiovanni29/ipfs-oci-registry/internal/ipfs"
+	"github.com/fbongiovanni29/ipfs-oci-registry/internal/metrics"
 	"github.com/fbongiovanni29/ipfs-oci-registry/internal/storage"
 	"github.com/fbongiovanni29/ipfs-oci-registry/internal/types"
 	"github.com/rs/zerolog"
@@ -68,6 +69,7 @@ func (c *Collector) run(ctx context.Context) {
 }
 
 func (c *Collector) collect(ctx context.Context) {
+	start := time.Now()
 	cutoff := time.Now().Add(-c.config.MaxAge)
 
 	c.logger.Info().Time("cutoff", cutoff).Msg("starting GC sweep")
@@ -134,6 +136,11 @@ func (c *Collector) collect(ctx context.Context) {
 			c.logger.Debug().Str("upload_id", session.ID).Msg("cleaned up stale upload")
 		}
 	}
+
+	metrics.GCRunsTotal.Inc()
+	metrics.GCDeletedTotal.Add(float64(deleted))
+	metrics.GCErrorsTotal.Add(float64(errors))
+	metrics.GCDuration.Observe(time.Since(start).Seconds())
 
 	c.logger.Info().
 		Int("deleted", deleted).

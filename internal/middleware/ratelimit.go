@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/fbongiovanni29/ipfs-oci-registry/internal/config"
+	"github.com/fbongiovanni29/ipfs-oci-registry/internal/metrics"
 )
 
 type ipCounter struct {
@@ -92,6 +93,7 @@ func (rl *RateLimiter) Middleware(cfg config.RateLimitConfig) func(http.Handler)
 
 			ip := extractIP(r)
 			if !rl.allow(ip) {
+				metrics.RateLimitBlockedTotal.Inc()
 				w.Header().Set("Retry-After", "60")
 				http.Error(w, `{"errors":[{"code":"TOOMANYREQUESTS","message":"rate limit exceeded"}]}`, http.StatusTooManyRequests)
 				return

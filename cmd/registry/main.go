@@ -15,11 +15,13 @@ import (
 	"github.com/fbongiovanni29/ipfs-oci-registry/internal/federation"
 	"github.com/fbongiovanni29/ipfs-oci-registry/internal/gc"
 	"github.com/fbongiovanni29/ipfs-oci-registry/internal/ipfs"
+	"github.com/fbongiovanni29/ipfs-oci-registry/internal/metrics"
 	"github.com/fbongiovanni29/ipfs-oci-registry/internal/middleware"
 	"github.com/fbongiovanni29/ipfs-oci-registry/internal/registry"
 	"github.com/fbongiovanni29/ipfs-oci-registry/internal/storage"
 	"github.com/fbongiovanni29/ipfs-oci-registry/internal/upstream"
 	"github.com/gorilla/mux"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/rs/zerolog"
 )
 
@@ -133,6 +135,15 @@ func main() {
 
 	// Setup HTTP router
 	router := mux.NewRouter()
+
+	// Metrics middleware (outermost — captures all requests including rejected ones)
+	if cfg.Metrics.Enabled {
+		router.Use(metrics.HTTPMiddleware())
+		metrics.RegisterStorageCollector(store)
+		router.Handle(cfg.Metrics.Path, promhttp.Handler()).Methods(http.MethodGet)
+		logger.Info().Str("path", cfg.Metrics.Path).Msg("prometheus metrics enabled")
+	}
+
 	router.Use(loggingMiddleware(logger))
 	router.Use(corsMiddleware())
 

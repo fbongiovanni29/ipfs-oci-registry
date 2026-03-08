@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/fbongiovanni29/ipfs-oci-registry/internal/ipfs"
+	"github.com/fbongiovanni29/ipfs-oci-registry/internal/metrics"
 	"github.com/fbongiovanni29/ipfs-oci-registry/internal/storage"
 	"github.com/fbongiovanni29/ipfs-oci-registry/internal/types"
 )
@@ -56,9 +57,9 @@ func (h *Handler) getManifestByDigest(ctx context.Context, name, registry, repo,
 	if err == nil {
 		content, err := h.fetchFromIPFS(ctx, mapping.CID)
 		if err == nil {
-			// Verify digest
 			computed := computeDigest(content)
 			if computed == digest {
+				metrics.ResolveTotal.WithLabelValues("manifest", "local", "hit").Inc()
 				return digest, content, mapping.MediaType, nil
 			}
 			h.logger.Warn().Str("digest", digest).Msg("local content digest mismatch")
@@ -76,8 +77,8 @@ func (h *Handler) getManifestByDigest(ctx context.Context, name, registry, repo,
 			if err == nil {
 				computed := computeDigest(content)
 				if computed == digest {
-					// Cache locally
 					h.store.PutMapping(mapping)
+					metrics.ResolveTotal.WithLabelValues("manifest", "federation", "hit").Inc()
 					return digest, content, mapping.MediaType, nil
 				}
 			}
@@ -86,9 +87,16 @@ func (h *Handler) getManifestByDigest(ctx context.Context, name, registry, repo,
 
 	// 3. Fetch from upstream (if registry is configured)
 	if registry != "" && h.upstream.HasUpstream(registry) {
-		return h.fetchManifestFromUpstream(ctx, name, registry, repo, digest)
+		d, c, m, err := h.fetchManifestFromUpstream(ctx, name, registry, repo, digest)
+		if err == nil {
+			metrics.ResolveTotal.WithLabelValues("manifest", "upstream", "hit").Inc()
+		} else {
+			metrics.ResolveTotal.WithLabelValues("manifest", "upstream", "miss").Inc()
+		}
+		return d, c, m, err
 	}
 
+	metrics.ResolveTotal.WithLabelValues("manifest", "none", "miss").Inc()
 	return "", nil, "", fmt.Errorf("manifest not found: %s", digest)
 }
 
@@ -149,15 +157,20 @@ func (h *Handler) getManifestByTag(ctx context.Context, name, registry, repo, ta
 
 // fetchManifestFromUpstream fetches a manifest from an upstream registry and caches it.
 func (h *Handler) fetchManifestFromUpstream(ctx context.Context, name, registry, repo, reference string) (string, []byte, string, error) {
+	start := time.Now()
 	resp, err := h.upstream.FetchManifest(ctx, registry, repo, reference)
+	metrics.UpstreamRequestDuration.WithLabelValues(registry, "manifest").Observe(time.Since(start).Seconds())
 	if err != nil {
+		metrics.UpstreamRequestsTotal.WithLabelValues(registry, "manifest", "error").Inc()
 		return "", nil, "", fmt.Errorf("upstream fetch failed: %w", err)
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != 200 {
+		metrics.UpstreamRequestsTotal.WithLabelValues(registry, "manifest", "error").Inc()
 		return "", nil, "", fmt.Errorf("upstream returned status %d", resp.StatusCode)
 	}
+	metrics.UpstreamRequestsTotal.WithLabelValues(registry, "manifest", "success").Inc()
 
 	content, err := io.ReadAll(resp.Body)
 	if err != nil {
@@ -239,6 +252,7 @@ func (h *Handler) resolveBlob(ctx context.Context, name, digest string) (*types.
 	// 1. Check local store
 	mapping, err := h.store.GetMapping(digest)
 	if err == nil {
+		metrics.ResolveTotal.WithLabelValues("blob", "local", "hit").Inc()
 		return mapping, nil
 	}
 
@@ -249,11 +263,10 @@ func (h *Handler) resolveBlob(ctx context.Context, name, digest string) (*types.
 		cancel()
 
 		if err == nil && mapping != nil {
-			// Verify we can actually fetch it
 			_, err := h.ipfsClient.Stat(ctx, mapping.CID)
 			if err == nil {
-				// Cache locally
 				h.store.PutMapping(mapping)
+				metrics.ResolveTotal.WithLabelValues("blob", "federation", "hit").Inc()
 				return mapping, nil
 			}
 		}
@@ -268,18 +281,24 @@ func (h *Handler) resolveBlob(ctx context.Context, name, digest string) (*types.
 				Str("repo", repo).
 				Str("digest", digest).
 				Msg("failed to fetch blob from upstream")
+			metrics.ResolveTotal.WithLabelValues("blob", "upstream", "miss").Inc()
 			return nil, err
 		}
+		metrics.ResolveTotal.WithLabelValues("blob", "upstream", "hit").Inc()
 		return mapping, nil
 	}
 
+	metrics.ResolveTotal.WithLabelValues("blob", "none", "miss").Inc()
 	return nil, storage.ErrNotFound
 }
 
 // fetchBlobFromUpstream fetches a blob from an upstream registry and caches it.
 func (h *Handler) fetchBlobFromUpstream(ctx context.Context, name, registry, repo, digest string) (*types.BlobMapping, error) {
+	start := time.Now()
 	resp, err := h.upstream.FetchBlob(ctx, registry, repo, digest)
+	metrics.UpstreamRequestDuration.WithLabelValues(registry, "blob").Observe(time.Since(start).Seconds())
 	if err != nil {
+		metrics.UpstreamRequestsTotal.WithLabelValues(registry, "blob", "error").Inc()
 		return nil, fmt.Errorf("upstream fetch failed: %w", err)
 	}
 	defer resp.Body.Close()
@@ -291,8 +310,10 @@ func (h *Handler) fetchBlobFromUpstream(ctx context.Context, name, registry, rep
 			Str("digest", digest).
 			Str("body", string(body)).
 			Msg("upstream blob fetch non-200")
+		metrics.UpstreamRequestsTotal.WithLabelValues(registry, "blob", "error").Inc()
 		return nil, fmt.Errorf("upstream returned status %d", resp.StatusCode)
 	}
+	metrics.UpstreamRequestsTotal.WithLabelValues(registry, "blob", "success").Inc()
 
 	// Stream to IPFS while computing hash
 	pr, pw := io.Pipe()
