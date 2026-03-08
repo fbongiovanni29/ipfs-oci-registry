@@ -2,7 +2,7 @@
 
 # IPFS OCI Registry
 
-> **Note:** This project was vibecoded as a proof of concept. It is not production-ready and should be used for experimentation and learning purposes only. It has been validated locally and to some extent with minikube
+> **Early Access** — This project is under active development and looking for early adopters. Core functionality is implemented and tested (60+ tests, e2e validated with Docker and Kubernetes). If you're interested in decentralized container distribution, we'd love your feedback — [open an issue](https://github.com/fbongiovanni29/ipfs-oci-registry/issues) or reach out.
 
 **Pull Once, Share Everywhere** — A decentralized, federated container registry powered by IPFS.
 
