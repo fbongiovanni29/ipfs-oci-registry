@@ -155,12 +155,13 @@ func (h *Handler) fetchManifestFromUpstream(ctx context.Context, name, registry,
 
 	// Store mapping
 	mapping := &types.BlobMapping{
-		Digest:    digest,
-		CID:       addResp.Hash,
-		Size:      int64(len(content)),
-		MediaType: mediaType,
-		Source:    fmt.Sprintf("upstream:%s", registry),
-		CreatedAt: time.Now(),
+		Digest:     digest,
+		CID:        addResp.Hash,
+		Size:       int64(len(content)),
+		MediaType:  mediaType,
+		Repository: name,
+		Source:     fmt.Sprintf("upstream:%s", registry),
+		CreatedAt:  time.Now(),
 	}
 
 	if err := h.store.PutMapping(mapping); err != nil {
@@ -184,7 +185,7 @@ func (h *Handler) fetchManifestFromUpstream(ctx context.Context, name, registry,
 	h.store.AddRepositoryManifest(name, digest)
 
 	// Announce to federation
-	if h.federation != nil && h.config.Federation.AnnounceNewContent {
+	if h.shouldAnnounce(mapping) {
 		if err := h.federation.Announce(mapping); err != nil {
 			h.logger.Warn().Err(err).Msg("failed to announce manifest to federation")
 		}
@@ -230,7 +231,16 @@ func (h *Handler) resolveBlob(ctx context.Context, name, digest string) (*types.
 
 	// 3. Fetch from upstream
 	if registry != "" && h.upstream.HasUpstream(registry) {
-		return h.fetchBlobFromUpstream(ctx, name, registry, repo, digest)
+		mapping, err := h.fetchBlobFromUpstream(ctx, name, registry, repo, digest)
+		if err != nil {
+			h.logger.Warn().Err(err).
+				Str("registry", registry).
+				Str("repo", repo).
+				Str("digest", digest).
+				Msg("failed to fetch blob from upstream")
+			return nil, err
+		}
+		return mapping, nil
 	}
 
 	return nil, storage.ErrNotFound
@@ -245,6 +255,12 @@ func (h *Handler) fetchBlobFromUpstream(ctx context.Context, name, registry, rep
 	defer resp.Body.Close()
 
 	if resp.StatusCode != 200 {
+		body, _ := io.ReadAll(resp.Body)
+		h.logger.Warn().
+			Int("status", resp.StatusCode).
+			Str("digest", digest).
+			Str("body", string(body)).
+			Msg("upstream blob fetch non-200")
 		return nil, fmt.Errorf("upstream returned status %d", resp.StatusCode)
 	}
 
@@ -281,11 +297,12 @@ func (h *Handler) fetchBlobFromUpstream(ctx context.Context, name, registry, rep
 
 	// Store mapping
 	mapping := &types.BlobMapping{
-		Digest:    digest,
-		CID:       addResp.Hash,
-		Size:      resp.ContentLength,
-		Source:    fmt.Sprintf("upstream:%s", registry),
-		CreatedAt: time.Now(),
+		Digest:     digest,
+		CID:        addResp.Hash,
+		Size:       resp.ContentLength,
+		Repository: name,
+		Source:     fmt.Sprintf("upstream:%s", registry),
+		CreatedAt:  time.Now(),
 	}
 
 	if err := h.store.PutMapping(mapping); err != nil {
@@ -293,7 +310,7 @@ func (h *Handler) fetchBlobFromUpstream(ctx context.Context, name, registry, rep
 	}
 
 	// Announce to federation
-	if h.federation != nil && h.config.Federation.AnnounceNewContent {
+	if h.shouldAnnounce(mapping) {
 		if err := h.federation.Announce(mapping); err != nil {
 			h.logger.Warn().Err(err).Msg("failed to announce blob to federation")
 		}

@@ -101,6 +101,7 @@ An OCI Distribution API-compliant registry that uses IPFS as its storage and dis
 - **Pubsub Subscriber**: Listens for mappings from peers
 - **Mapping Cache**: Short-term cache of remote mappings
 - **Timeout/Circuit Breaker**: Never blocks on federation
+- **Federation Policy**: Controls what gets announced based on source and namespace
 
 ## Data Flow
 
@@ -594,6 +595,9 @@ federation:
   topic: /oci-registry/v1/mappings
   query_timeout: 500ms
   announce_new_content: true
+  share_pushed_images: false      # proprietary images stay local
+  share_upstream_images: true     # public upstream pulls are shared
+  public_namespace: "public"      # push to public/ to opt in to sharing
 
 upstreams:
   docker.io:
@@ -603,11 +607,79 @@ upstreams:
       service: registry.docker.io
   ghcr.io:
     url: https://ghcr.io
+  gcr.io:
+    url: https://gcr.io
+  us-docker.pkg.dev:
+    url: https://us-docker.pkg.dev
+  public.ecr.aws:
+    url: https://public.ecr.aws
+  mcr.microsoft.com:
+    url: https://mcr.microsoft.com
+  quay.io:
+    url: https://quay.io
 
 logging:
   level: info
   format: json
 ```
+
+## Federation Policy
+
+The federation policy controls which images are announced to peers via IPFS pubsub. This allows organizations to share public images while keeping proprietary images private.
+
+### Policy Decision Flow
+
+```
+Image pushed/pulled
+        │
+        ▼
+  announce_new_content: false? ──► Don't announce
+        │ true
+        ▼
+  Source is "upstream:*"? ──► Check share_upstream_images
+        │ no
+        ▼
+  Repository starts with public_namespace? ──► Announce
+        │ no
+        ▼
+  Check share_pushed_images
+```
+
+### Configuration Options
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `share_pushed_images` | `false` | Announce images pushed directly to the registry |
+| `share_upstream_images` | `true` | Announce images pulled from upstream registries |
+| `public_namespace` | `"public"` | Namespace prefix that opts pushed images in to federation |
+
+### Deployment Scenarios
+
+**Public sharing (default):** Share upstream pulls, keep pushed images private.
+```yaml
+share_pushed_images: false
+share_upstream_images: true
+public_namespace: "public"
+```
+
+**Internal federation (private swarm):** Share everything within your own infrastructure.
+```yaml
+share_pushed_images: true
+share_upstream_images: true
+```
+
+**No federation:** Local cache only, no peer communication.
+```yaml
+enabled: false
+```
+
+### Network Isolation
+
+Federation policy controls what gets *announced*. Network isolation controls who you *peer with*:
+
+- **Private IPFS swarm**: Configure all nodes with a shared swarm key. Only nodes with the key can connect.
+- **Unique topic**: Use a company-specific pubsub topic for additional isolation.
+- Both can be combined for defense in depth.
 
 ## Future Enhancements
 

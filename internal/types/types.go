@@ -6,12 +6,13 @@ import (
 
 // BlobMapping represents the mapping between an OCI digest and an IPFS CID.
 type BlobMapping struct {
-	Digest    string    `json:"digest"`
-	CID       string    `json:"cid"`
-	Size      int64     `json:"size"`
-	MediaType string    `json:"media_type,omitempty"`
-	Source    string    `json:"source"` // "push", "upstream:<registry>", "federation:<peerID>"
-	CreatedAt time.Time `json:"created_at"`
+	Digest     string    `json:"digest"`
+	CID        string    `json:"cid"`
+	Size       int64     `json:"size"`
+	MediaType  string    `json:"media_type,omitempty"`
+	Repository string    `json:"repository,omitempty"`
+	Source     string    `json:"source"` // "push", "upstream:<registry>", "federation:<peerID>"
+	CreatedAt  time.Time `json:"created_at"`
 }
 
 // TagReference represents a tag pointing to a manifest digest.

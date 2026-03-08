@@ -80,10 +80,11 @@ Deploy 1000 edge devices. The first one pulls from Docker Hub. The other 999 pul
 Pin images to local IPFS. Internet goes down? Registry keeps working. Upstream disappears? You still have your images.
 
 ### 🏢 Cross-Organization Collaboration
-Share container images between organizations without:
-- Hosting a registry for each other
-- Setting up VPNs or peering agreements
-- Any coordination whatsoever
+Share container images between organizations by adding their registry as an upstream — same pattern as Docker Hub. DNS is the namespace:
+```
+docker pull localhost:5000/registry.partner.com/shared-tools:v2
+```
+No VPNs, no peering agreements, no shared infrastructure. First pull comes from the source, subsequent pulls come from IPFS peers.
 
 ### 💰 Eliminate Rate Limits & Egress Costs
 - Docker Hub: 100 pulls/6 hours (anonymous)
@@ -267,28 +268,73 @@ Cloud-specific values files included for:
 
 ### Pull Through Proxy (Mirror Mode)
 
-```bash
-# Pull from Docker Hub through the registry
-docker pull localhost:5000/docker.io/library/nginx:latest
+Validated upstream registries:
 
-# Pull from GitHub Container Registry
-docker pull localhost:5000/ghcr.io/aquasecurity/trivy:latest
-
-# Pull from any configured upstream
-docker pull localhost:5000/gcr.io/google-containers/pause:latest
-```
+| Registry | Example |
+|----------|---------|
+| Docker Hub | `docker pull localhost:5000/docker.io/library/alpine:latest` |
+| GitHub (GHCR) | `docker pull localhost:5000/ghcr.io/aquasecurity/trivy:latest` |
+| Google (GCR) | `docker pull localhost:5000/gcr.io/google-containers/pause:latest` |
+| Google (GAR) | `docker pull localhost:5000/us-docker.pkg.dev/google-samples/containers/gke/hello-app:1.0` |
+| AWS ECR Public | `docker pull localhost:5000/public.ecr.aws/docker/library/alpine:latest` |
+| Microsoft (MCR) | `docker pull localhost:5000/mcr.microsoft.com/hello-world:latest` |
+| Quay.io | `docker pull localhost:5000/quay.io/prometheus/node-exporter:latest` |
 
 First pull fetches from upstream and caches in IPFS. Subsequent pulls (by you or anyone in the federation) come from IPFS.
 
 ### Push Your Own Images
 
 ```bash
-# Tag and push
+# Tag and push (private by default — not shared via federation)
 docker tag myapp:v1 localhost:5000/myapp:v1
 docker push localhost:5000/myapp:v1
 
-# It's now in IPFS and available to the federation
+# Push to the public namespace to share via federation
+docker tag mytools:v1 localhost:5000/public/mytools:v1
+docker push localhost:5000/public/mytools:v1
 ```
+
+### Cross-Organization Image Sharing
+
+Share images between organizations using DNS as the namespace — the same pull-through pattern used for public registries. No new protocol, no coordination, no trust assumptions beyond what DNS already provides.
+
+**Company A** publishes images at `registry.company-a.com`. **Company B** adds it as an upstream:
+
+```yaml
+upstreams:
+  # Public registries
+  docker.io:
+    url: https://registry-1.docker.io
+    auth:
+      type: bearer
+      token_url: https://auth.docker.io/token
+      service: registry.docker.io
+
+  # Partner registries
+  registry.company-a.com:
+    url: https://registry.company-a.com
+    auth:
+      type: bearer
+      token_url: https://registry.company-a.com/v2/token
+      service: registry.company-a.com
+```
+
+Then Company B pulls Company A's images the same way they pull from Docker Hub:
+
+```bash
+# From Docker Hub
+docker pull localhost:5000/docker.io/library/nginx:latest
+
+# From Company A
+docker pull localhost:5000/registry.company-a.com/myapp:v1
+
+# From Company B
+docker pull localhost:5000/registry.company-b.com/tools:v2
+```
+
+The first pull fetches from the source registry. After that, it's cached in IPFS — and federation means anyone else pulling the same image gets it from the nearest peer instead of going back to the source.
+
+DNS is the namespace. No collisions between organizations. No new concepts to learn.
 
 ### Kubernetes Pod Spec
 
@@ -309,11 +355,14 @@ server:
 
 ipfs:
   api_url: http://localhost:5001
-  pin_content: true          # Pin content for persistence
+  pin_content: true              # Pin content for persistence
 
 federation:
-  enabled: true              # Share with other IPFS registries
-  topic: /oci-registry/v1    # Pubsub topic for announcements
+  enabled: true                  # Share with other IPFS registries
+  topic: /oci-registry/v1       # Pubsub topic for announcements
+  share_pushed_images: false     # Don't share proprietary images
+  share_upstream_images: true    # Share public upstream pulls
+  public_namespace: "public"     # Push to public/ to opt in to sharing
 
 upstreams:
   docker.io:
@@ -329,14 +378,80 @@ upstreams:
       type: bearer
       token_url: https://ghcr.io/token
 
-  # Add private registries with credentials
-  private.registry.com:
-    url: https://private.registry.com
+  gcr.io:
+    url: https://gcr.io
     auth:
-      type: basic
-      username: ${REGISTRY_USER}      # Environment variable expansion
-      password: ${REGISTRY_PASSWORD}
+      type: bearer
+      token_url: https://gcr.io/v2/token
+      service: gcr.io
+
+  us-docker.pkg.dev:
+    url: https://us-docker.pkg.dev
+    auth:
+      type: bearer
+      token_url: https://us-docker.pkg.dev/v2/token
+      service: us-docker.pkg.dev
+
+  public.ecr.aws:
+    url: https://public.ecr.aws
+    auth:
+      type: bearer
+      token_url: https://public.ecr.aws/token
+      service: public.ecr.aws
+
+  mcr.microsoft.com:
+    url: https://mcr.microsoft.com
+    auth:
+      type: bearer
+      token_url: https://mcr.microsoft.com/v2/token
+      service: mcr.microsoft.com
+
+  quay.io:
+    url: https://quay.io
+    auth:
+      type: bearer
+      token_url: https://quay.io/v2/auth
+
+  # Add private registries with credentials
+  # private.registry.com:
+  #   url: https://private.registry.com
+  #   auth:
+  #     type: basic
+  #     username: ${REGISTRY_USER}      # Environment variable expansion
+  #     password: ${REGISTRY_PASSWORD}
 ```
+
+---
+
+## Federation Policy
+
+Control what gets shared via federation to keep proprietary images private while still benefiting from P2P distribution of public images.
+
+### How It Works
+
+| Image Source | Default Behavior | How to Override |
+|---|---|---|
+| Pulled from upstream (Docker Hub, GHCR, etc.) | Shared via federation | Set `share_upstream_images: false` |
+| Pushed to registry | **Not shared** (private) | Set `share_pushed_images: true` |
+| Pushed to `public/` namespace | Shared via federation | Change `public_namespace` in config |
+
+### Enterprise Setup: Internal Federation Only
+
+Share everything across your own infrastructure (multi-cloud, multi-region) without leaking to the public IPFS network:
+
+1. **Private IPFS swarm** — configure all IPFS nodes with a shared swarm key so they only peer with each other
+2. **Unique topic** — use a company-specific federation topic
+3. **Share everything internally** — set `share_pushed_images: true` since the network is private
+
+```yaml
+federation:
+  enabled: true
+  topic: /mycompany-internal/oci-registry/v1
+  share_pushed_images: true       # Safe — private swarm only
+  share_upstream_images: true
+```
+
+Your nodes federate with each other across AWS, GCP, Azure, on-prem — doesn't matter. No content reaches the public internet.
 
 ---
 
@@ -407,11 +522,14 @@ Full [OCI Distribution Spec](https://github.com/opencontainers/distribution-spec
 # Run all tests
 go test ./... -v
 
+# With race detector
+go test ./... -race
+
 # With coverage
 go test ./... -cover
 ```
 
-38 tests covering storage, handlers, config, and upstream client.
+46 tests covering storage, handlers (including federation policy), config, and upstream client.
 
 ---
 

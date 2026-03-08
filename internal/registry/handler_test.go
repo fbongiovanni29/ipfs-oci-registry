@@ -524,3 +524,89 @@ func TestCrossRepoMount(t *testing.T) {
 		t.Errorf("unexpected digest: %s", rec.Header().Get("Docker-Content-Digest"))
 	}
 }
+
+func TestShouldAnnounce(t *testing.T) {
+	th := setupTestHandler(t)
+	defer th.Close()
+
+	tests := []struct {
+		name                string
+		sharePushed         bool
+		shareUpstream       bool
+		publicNamespace     string
+		mapping             *types.BlobMapping
+		want                bool
+	}{
+		{
+			name:          "upstream image with sharing enabled",
+			shareUpstream: true,
+			mapping:       &types.BlobMapping{Source: "upstream:docker.io", Repository: "docker.io/library/alpine"},
+			want:          true,
+		},
+		{
+			name:          "upstream image with sharing disabled",
+			shareUpstream: false,
+			mapping:       &types.BlobMapping{Source: "upstream:docker.io", Repository: "docker.io/library/alpine"},
+			want:          false,
+		},
+		{
+			name:        "pushed image with sharing disabled",
+			sharePushed: false,
+			mapping:     &types.BlobMapping{Source: "push", Repository: "internal/myapp"},
+			want:        false,
+		},
+		{
+			name:        "pushed image with sharing enabled",
+			sharePushed: true,
+			mapping:     &types.BlobMapping{Source: "push", Repository: "internal/myapp"},
+			want:        true,
+		},
+		{
+			name:            "pushed image in public namespace",
+			sharePushed:     false,
+			publicNamespace: "public",
+			mapping:         &types.BlobMapping{Source: "push", Repository: "public/mytools"},
+			want:            true,
+		},
+		{
+			name:            "pushed image NOT in public namespace",
+			sharePushed:     false,
+			publicNamespace: "public",
+			mapping:         &types.BlobMapping{Source: "push", Repository: "private/myapp"},
+			want:            false,
+		},
+		{
+			name:            "pushed image with name starting with public but not in namespace",
+			sharePushed:     false,
+			publicNamespace: "public",
+			mapping:         &types.BlobMapping{Source: "push", Repository: "publicdata"},
+			want:            false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			th.config.Federation.AnnounceNewContent = true
+			th.config.Federation.SharePushedImages = tt.sharePushed
+			th.config.Federation.ShareUpstreamImages = tt.shareUpstream
+			th.config.Federation.PublicNamespace = tt.publicNamespace
+
+			got := th.shouldAnnounce(tt.mapping)
+			if got != tt.want {
+				t.Errorf("shouldAnnounce() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+
+	// Test with AnnounceNewContent disabled — nothing should be announced
+	t.Run("announce disabled globally", func(t *testing.T) {
+		th.config.Federation.AnnounceNewContent = false
+		th.config.Federation.SharePushedImages = true
+		th.config.Federation.ShareUpstreamImages = true
+
+		got := th.shouldAnnounce(&types.BlobMapping{Source: "push", Repository: "public/anything"})
+		if got != false {
+			t.Errorf("shouldAnnounce() = %v, want false when announce disabled", got)
+		}
+	})
+}

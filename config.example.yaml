@@ -40,6 +40,12 @@ federation:
   # Announce newly cached content to federation
   announce_new_content: true
 
+  # Share images pushed directly to this registry (proprietary images)
+  share_pushed_images: false
+
+  # Share images pulled from upstream registries (public images)
+  share_upstream_images: true
+
 # Upstream registries to proxy/mirror
 upstreams:
   # Docker Hub
@@ -71,6 +77,30 @@ upstreams:
     auth:
       type: bearer
       token_url: https://quay.io/v2/auth
+
+  # Google Artifact Registry
+  us-docker.pkg.dev:
+    url: https://us-docker.pkg.dev
+    auth:
+      type: bearer
+      token_url: https://us-docker.pkg.dev/v2/token
+      service: us-docker.pkg.dev
+
+  # AWS ECR Public
+  public.ecr.aws:
+    url: https://public.ecr.aws
+    auth:
+      type: bearer
+      token_url: https://public.ecr.aws/token
+      service: public.ecr.aws
+
+  # Microsoft Container Registry
+  mcr.microsoft.com:
+    url: https://mcr.microsoft.com
+    auth:
+      type: bearer
+      token_url: https://mcr.microsoft.com/v2/token
+      service: mcr.microsoft.com
 
   # Example private registry
   # my-private.registry.com:

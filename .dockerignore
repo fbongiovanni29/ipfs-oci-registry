@@ -9,6 +9,12 @@
 *.so
 *.dylib
 oci-ipfs-registry
+bin/
+coverage.out
+coverage.html
+
+# Assets
+assets/
 
 # Test files
 *_test.go

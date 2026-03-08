@@ -18,6 +18,8 @@ federation:
   topic: /oci-registry/v1/mappings
   query_timeout: 500ms
   announce_new_content: true
+  share_pushed_images: false
+  share_upstream_images: true
 
 upstreams:
   docker.io:
@@ -47,6 +49,30 @@ upstreams:
       type: bearer
       token_url: https://quay.io/v2/auth
       service: quay.io
+
+  # Google Artifact Registry
+  us-docker.pkg.dev:
+    url: https://us-docker.pkg.dev
+    auth:
+      type: bearer
+      token_url: https://us-docker.pkg.dev/v2/token
+      service: us-docker.pkg.dev
+
+  # AWS ECR Public
+  public.ecr.aws:
+    url: https://public.ecr.aws
+    auth:
+      type: bearer
+      token_url: https://public.ecr.aws/token
+      service: public.ecr.aws
+
+  # Microsoft Container Registry
+  mcr.microsoft.com:
+    url: https://mcr.microsoft.com
+    auth:
+      type: bearer
+      token_url: https://mcr.microsoft.com/v2/token
+      service: mcr.microsoft.com
 
 logging:
   level: info

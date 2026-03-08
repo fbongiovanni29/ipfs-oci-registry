@@ -45,10 +45,13 @@ type IPFSConfig struct {
 
 // FederationConfig configures the federation layer.
 type FederationConfig struct {
-	Enabled            bool          `yaml:"enabled"`
-	Topic              string        `yaml:"topic"`
-	QueryTimeout       time.Duration `yaml:"query_timeout"`
-	AnnounceNewContent bool          `yaml:"announce_new_content"`
+	Enabled              bool          `yaml:"enabled"`
+	Topic                string        `yaml:"topic"`
+	QueryTimeout         time.Duration `yaml:"query_timeout"`
+	AnnounceNewContent   bool          `yaml:"announce_new_content"`
+	SharePushedImages    bool          `yaml:"share_pushed_images"`
+	ShareUpstreamImages  bool          `yaml:"share_upstream_images"`
+	PublicNamespace      string        `yaml:"public_namespace"`
 }
 
 // UpstreamConfig configures an upstream registry.
@@ -89,10 +92,13 @@ func DefaultConfig() *Config {
 			PinContent: true,
 		},
 		Federation: FederationConfig{
-			Enabled:            true,
-			Topic:              "/oci-registry/v1/mappings",
-			QueryTimeout:       500 * time.Millisecond,
-			AnnounceNewContent: true,
+			Enabled:             true,
+			Topic:               "/oci-registry/v1/mappings",
+			QueryTimeout:        500 * time.Millisecond,
+			AnnounceNewContent:  true,
+			SharePushedImages:   false,
+			ShareUpstreamImages: true,
+			PublicNamespace:     "public",
 		},
 		Upstreams: map[string]UpstreamConfig{
 			"docker.io": {

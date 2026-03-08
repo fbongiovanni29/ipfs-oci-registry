@@ -215,12 +215,13 @@ func (h *Handler) handleManifestPut(w http.ResponseWriter, r *http.Request) {
 
 	// Store mapping
 	mapping := &types.BlobMapping{
-		Digest:    digest,
-		CID:       addResp.Hash,
-		Size:      int64(len(content)),
-		MediaType: mediaType,
-		Source:    "push",
-		CreatedAt: time.Now(),
+		Digest:     digest,
+		CID:        addResp.Hash,
+		Size:       int64(len(content)),
+		MediaType:  mediaType,
+		Repository: name,
+		Source:     "push",
+		CreatedAt:  time.Now(),
 	}
 
 	if err := h.store.PutMapping(mapping); err != nil {
@@ -247,8 +248,8 @@ func (h *Handler) handleManifestPut(w http.ResponseWriter, r *http.Request) {
 		h.logger.Error().Err(err).Msg("failed to update repository")
 	}
 
-	// Announce to federation
-	if h.federation != nil {
+	// Announce to federation (if policy allows)
+	if h.shouldAnnounce(mapping) {
 		if err := h.federation.Announce(mapping); err != nil {
 			h.logger.Warn().Err(err).Msg("failed to announce manifest to federation")
 		}
@@ -516,11 +517,12 @@ func (h *Handler) handleBlobUploadPut(w http.ResponseWriter, r *http.Request) {
 
 	// Store mapping
 	mapping := &types.BlobMapping{
-		Digest:    digest,
-		CID:       addResp.Hash,
-		Size:      size,
-		Source:    "push",
-		CreatedAt: time.Now(),
+		Digest:     digest,
+		CID:        addResp.Hash,
+		Size:       size,
+		Repository: name,
+		Source:     "push",
+		CreatedAt:  time.Now(),
 	}
 
 	if err := h.store.PutMapping(mapping); err != nil {
@@ -532,8 +534,8 @@ func (h *Handler) handleBlobUploadPut(w http.ResponseWriter, r *http.Request) {
 	os.Remove(session.TempPath)
 	h.store.DeleteUpload(uploadID)
 
-	// Announce to federation
-	if h.federation != nil {
+	// Announce to federation (if policy allows)
+	if h.shouldAnnounce(mapping) {
 		if err := h.federation.Announce(mapping); err != nil {
 			h.logger.Warn().Err(err).Msg("failed to announce blob to federation")
 		}
@@ -591,11 +593,12 @@ func (h *Handler) handleMonolithicUpload(w http.ResponseWriter, r *http.Request,
 
 	// Store mapping
 	mapping := &types.BlobMapping{
-		Digest:    digest,
-		CID:       addResp.Hash,
-		Size:      size,
-		Source:    "push",
-		CreatedAt: time.Now(),
+		Digest:     digest,
+		CID:        addResp.Hash,
+		Size:       size,
+		Repository: name,
+		Source:     "push",
+		CreatedAt:  time.Now(),
 	}
 
 	if err := h.store.PutMapping(mapping); err != nil {
@@ -603,8 +606,8 @@ func (h *Handler) handleMonolithicUpload(w http.ResponseWriter, r *http.Request,
 		return
 	}
 
-	// Announce to federation
-	if h.federation != nil {
+	// Announce to federation (if policy allows)
+	if h.shouldAnnounce(mapping) {
 		if err := h.federation.Announce(mapping); err != nil {
 			h.logger.Warn().Err(err).Msg("failed to announce blob to federation")
 		}
@@ -613,6 +616,27 @@ func (h *Handler) handleMonolithicUpload(w http.ResponseWriter, r *http.Request,
 	w.Header().Set("Location", fmt.Sprintf("/v2/%s/blobs/%s", name, digest))
 	w.Header().Set("Docker-Content-Digest", digest)
 	w.WriteHeader(http.StatusCreated)
+}
+
+// shouldAnnounce checks the federation policy to decide if a mapping should be announced.
+func (h *Handler) shouldAnnounce(mapping *types.BlobMapping) bool {
+	if h.federation == nil || !h.config.Federation.AnnounceNewContent {
+		return false
+	}
+
+	// Upstream-sourced images follow the share_upstream_images policy
+	if strings.HasPrefix(mapping.Source, "upstream:") {
+		return h.config.Federation.ShareUpstreamImages
+	}
+
+	// Pushed images: check if they're in the public namespace
+	if ns := h.config.Federation.PublicNamespace; ns != "" {
+		if strings.HasPrefix(mapping.Repository, ns+"/") {
+			return true
+		}
+	}
+
+	return h.config.Federation.SharePushedImages
 }
 
 // writeError writes an OCI-compliant error response.

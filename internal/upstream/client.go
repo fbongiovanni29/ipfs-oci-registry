@@ -182,13 +182,28 @@ func (c *Client) doRequestWithAuth(ctx context.Context, cfg config.UpstreamConfi
 		}
 	}
 
-	// Handle redirects (e.g., Docker Hub redirects blob downloads to CDN)
-	if resp.StatusCode == http.StatusTemporaryRedirect || resp.StatusCode == http.StatusPermanentRedirect {
+	// Handle redirects (e.g., Docker Hub/GCR redirect blob downloads to CDN)
+	if resp.StatusCode == http.StatusMovedPermanently ||
+		resp.StatusCode == http.StatusFound ||
+		resp.StatusCode == http.StatusSeeOther ||
+		resp.StatusCode == http.StatusTemporaryRedirect ||
+		resp.StatusCode == http.StatusPermanentRedirect {
 		location := resp.Header.Get("Location")
 		resp.Body.Close()
 
 		if location == "" {
 			return nil, fmt.Errorf("redirect without Location header")
+		}
+
+		// Resolve relative redirect URLs against the original request URL
+		locationURL, err := url.Parse(location)
+		if err != nil {
+			return nil, fmt.Errorf("failed to parse redirect location: %w", err)
+		}
+		if !locationURL.IsAbs() {
+			baseURL, _ := url.Parse(cfg.URL)
+			locationURL = baseURL.ResolveReference(locationURL)
+			location = locationURL.String()
 		}
 
 		// Follow the redirect
