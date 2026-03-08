@@ -4,6 +4,8 @@
 
 > **Early Access** — This project is under active development and looking for early adopters. Core functionality is implemented and tested (60+ tests, e2e validated with Docker and Kubernetes). If you're interested in decentralized container distribution, we'd love your feedback — [open an issue](https://github.com/fbongiovanni29/ipfs-oci-registry/issues) or reach out.
 
+> **Public Instance Coming Soon** — A live instance will be available for anyone to try. Pull images through IPFS and join the federation. Stay tuned.
+
 **Pull Once, Share Everywhere** — A decentralized, federated container registry powered by IPFS.
 
 [![Go Version](https://img.shields.io/badge/Go-1.22+-00ADD8?style=flat&logo=go)](https://go.dev)
