@@ -33,4 +33,4 @@ NOTE: For Docker to push/pull from HTTP registries, add to insecure-registries:
     "insecure-registries": ["localhost:5000"]
   }
 
-For more information, visit: https://github.com/containerish/ipfs-oci-registry
+For more information, visit: https://github.com/fbongiovanni29/ipfs-oci-registry

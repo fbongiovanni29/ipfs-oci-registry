@@ -1,4 +1,4 @@
-module github.com/containerish/ipfs-oci-registry
+module github.com/fbongiovanni29/ipfs-oci-registry
 
 go 1.22
 

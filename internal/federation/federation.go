@@ -7,9 +7,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/containerish/ipfs-oci-registry/internal/config"
-	"github.com/containerish/ipfs-oci-registry/internal/ipfs"
-	"github.com/containerish/ipfs-oci-registry/internal/types"
+	"github.com/fbongiovanni29/ipfs-oci-registry/internal/config"
+	"github.com/fbongiovanni29/ipfs-oci-registry/internal/ipfs"
+	"github.com/fbongiovanni29/ipfs-oci-registry/internal/types"
 	"github.com/rs/zerolog"
 )
 

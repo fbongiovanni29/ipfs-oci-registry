@@ -681,6 +681,87 @@ Federation policy controls what gets *announced*. Network isolation controls who
 - **Unique topic**: Use a company-specific pubsub topic for additional isolation.
 - Both can be combined for defense in depth.
 
+### Private Swarm with Public Access (Gateway Pattern)
+
+A fully private swarm isolates your nodes from the public IPFS network, but also prevents fetching public upstream images. The **gateway node** pattern solves this by bridging both networks:
+
+```
+                          Internet
+                             │
+                             ▼
+┌────────────────────────────────────────────────────────┐
+│                    Private IPFS Swarm                    │
+│                                                          │
+│   ┌──────────┐     ┌──────────┐     ┌─────────────────┐ │
+│   │  Node A  │◄───►│  Node B  │◄───►│  Gateway Node   │─┼──► Public IPFS
+│   │ (worker) │     │ (worker) │     │  (bridge)       │─┼──► Docker Hub
+│   └──────────┘     └──────────┘     │                 │─┼──► GHCR, GCR...
+│        │                │           └─────────────────┘ │
+│        ▼                ▼                                │
+│   ┌──────────┐     ┌──────────┐                         │
+│   │ Cluster  │     │ Cluster  │                         │
+│   │    A     │     │    B     │                         │
+│   └──────────┘     └──────────┘                         │
+└────────────────────────────────────────────────────────┘
+```
+
+**How it works:**
+
+1. The gateway node has the private swarm key (peers with internal nodes) AND public IPFS connectivity
+2. It runs the registry proxy with upstream pull-through configured
+3. When an internal node requests a public image, the gateway fetches from upstream, caches to IPFS, and the content propagates through the private swarm
+4. Proprietary images pushed to internal nodes never leave the swarm — the gateway doesn't announce them externally
+
+**Gateway node configuration:**
+
+```yaml
+# Gateway node — bridges private swarm to public registries
+ipfs:
+  api_url: http://localhost:5001
+  swarm_key: /etc/ipfs/swarm.key     # same key as all private nodes
+
+federation:
+  enabled: true
+  announce_new_content: true
+  share_upstream_images: true         # share fetched public images internally
+  share_pushed_images: false          # never relay proprietary images
+
+upstreams:
+  docker.io:
+    url: https://registry-1.docker.io
+    auth:
+      token_url: https://auth.docker.io/token
+      service: registry.docker.io
+  ghcr.io:
+    url: https://ghcr.io
+  # ... other public registries
+```
+
+**Internal worker node configuration:**
+
+```yaml
+# Worker node — fully private, no upstream access needed
+ipfs:
+  api_url: http://localhost:5001
+  swarm_key: /etc/ipfs/swarm.key     # same key as gateway
+
+federation:
+  enabled: true
+  announce_new_content: false         # don't announce, just consume
+  share_pushed_images: false
+  share_upstream_images: false
+
+upstreams: {}                          # no upstream access — gateway handles it
+```
+
+**Deployment options:**
+
+| Scenario | Gateway | Workers | Public Access |
+|----------|---------|---------|---------------|
+| **Full lockdown** | No upstream, no public IPFS | Private swarm only | None — airgapped |
+| **Controlled egress** | Upstream pull-through only | Private swarm only | Gateway fetches, workers consume |
+| **Open federation** | Public IPFS + upstreams | Public IPFS | Full — all nodes participate |
+
 ## Future Enhancements
 
 1. **Garbage Collection** - unpin unused content from IPFS

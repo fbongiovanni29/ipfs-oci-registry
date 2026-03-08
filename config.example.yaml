@@ -46,6 +46,30 @@ federation:
   # Share images pulled from upstream registries (public images)
   share_upstream_images: true
 
+  # How long to trust a cached tag before re-checking upstream (0 = forever)
+  tag_ttl: 5m
+
+# Authentication for registry endpoints (optional)
+auth:
+  enabled: false
+  realm: "OCI Registry"
+  users:
+    # admin: ${REGISTRY_PASSWORD}
+    # readonly: changeme
+
+# Per-IP rate limiting (optional)
+rate_limit:
+  enabled: false
+  max_per_minute: 600
+  burst_size: 50
+
+# Garbage collection of old cached content (optional)
+gc:
+  enabled: false
+  interval: 1h       # How often to run GC
+  max_age: 168h      # Delete content older than 7 days
+  dry_run: false      # Set true to log what would be deleted without deleting
+
 # Upstream registries to proxy/mirror
 upstreams:
   # Docker Hub

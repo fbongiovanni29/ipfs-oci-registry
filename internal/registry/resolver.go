@@ -9,9 +9,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/containerish/ipfs-oci-registry/internal/ipfs"
-	"github.com/containerish/ipfs-oci-registry/internal/storage"
-	"github.com/containerish/ipfs-oci-registry/internal/types"
+	"github.com/fbongiovanni29/ipfs-oci-registry/internal/ipfs"
+	"github.com/fbongiovanni29/ipfs-oci-registry/internal/storage"
+	"github.com/fbongiovanni29/ipfs-oci-registry/internal/types"
 )
 
 // parseImageName parses an image name into registry and repository parts.
@@ -92,12 +92,42 @@ func (h *Handler) getManifestByDigest(ctx context.Context, name, registry, repo,
 	return "", nil, "", fmt.Errorf("manifest not found: %s", digest)
 }
 
+// isTagStale checks if a cached tag has exceeded the configured TTL.
+func (h *Handler) isTagStale(tagRef *types.TagReference) bool {
+	ttl := h.config.Federation.TagTTL
+	if ttl <= 0 {
+		return false // TTL disabled, never stale
+	}
+	return time.Since(tagRef.UpdatedAt) > ttl
+}
+
 // getManifestByTag fetches a manifest by tag.
 func (h *Handler) getManifestByTag(ctx context.Context, name, registry, repo, tag string) (string, []byte, string, error) {
 	// 1. Check local tag reference
 	tagRef, err := h.store.GetTag(name, tag)
 	if err == nil {
-		// Got cached tag, fetch manifest by digest
+		stale := h.isTagStale(tagRef)
+
+		if !stale {
+			// Fresh cache — serve directly
+			digest, content, mediaType, err := h.getManifestByDigest(ctx, name, registry, repo, tagRef.Digest)
+			if err == nil {
+				return digest, content, mediaType, nil
+			}
+		}
+
+		// Stale tag — try upstream for a fresh version
+		if stale && registry != "" && h.upstream.HasUpstream(registry) {
+			h.logger.Debug().Str("tag", tag).Str("name", name).Msg("tag TTL expired, revalidating from upstream")
+			digest, content, mediaType, err := h.fetchManifestFromUpstream(ctx, name, registry, repo, tag)
+			if err == nil {
+				return digest, content, mediaType, nil
+			}
+			// Upstream failed — serve stale (better than nothing)
+			h.logger.Warn().Err(err).Str("tag", tag).Msg("upstream revalidation failed, serving stale")
+		}
+
+		// Serve cached (stale or not) as fallback
 		digest, content, mediaType, err := h.getManifestByDigest(ctx, name, registry, repo, tagRef.Digest)
 		if err == nil {
 			return digest, content, mediaType, nil

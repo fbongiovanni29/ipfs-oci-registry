@@ -10,6 +10,6 @@ keywords:
   - registry
   - ipfs
   - container
-home: https://github.com/containerish/ipfs-oci-registry
+home: https://github.com/fbongiovanni29/ipfs-oci-registry
 maintainers:
   - name: containerish

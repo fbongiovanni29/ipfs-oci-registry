@@ -13,6 +13,9 @@ type Config struct {
 	Storage    StorageConfig             `yaml:"storage"`
 	IPFS       IPFSConfig                `yaml:"ipfs"`
 	Federation FederationConfig          `yaml:"federation"`
+	Auth       AuthConfig                `yaml:"auth"`
+	RateLimit  RateLimitConfig           `yaml:"rate_limit"`
+	GC         GCConfig                  `yaml:"gc"`
 	Upstreams  map[string]UpstreamConfig `yaml:"upstreams"`
 	Logging    LoggingConfig             `yaml:"logging"`
 }
@@ -52,6 +55,29 @@ type FederationConfig struct {
 	SharePushedImages    bool          `yaml:"share_pushed_images"`
 	ShareUpstreamImages  bool          `yaml:"share_upstream_images"`
 	PublicNamespace      string        `yaml:"public_namespace"`
+	TagTTL               time.Duration `yaml:"tag_ttl"`
+}
+
+// AuthConfig configures authentication for registry endpoints.
+type AuthConfig struct {
+	Enabled bool              `yaml:"enabled"`
+	Realm   string            `yaml:"realm"`
+	Users   map[string]string `yaml:"users"` // username -> password (use env vars: ${PASSWORD})
+}
+
+// RateLimitConfig configures per-IP rate limiting.
+type RateLimitConfig struct {
+	Enabled    bool `yaml:"enabled"`
+	MaxPerMin  int  `yaml:"max_per_minute"`
+	BurstSize  int  `yaml:"burst_size"`
+}
+
+// GCConfig configures garbage collection of old content.
+type GCConfig struct {
+	Enabled  bool          `yaml:"enabled"`
+	Interval time.Duration `yaml:"interval"`
+	MaxAge   time.Duration `yaml:"max_age"`
+	DryRun   bool          `yaml:"dry_run"`
 }
 
 // UpstreamConfig configures an upstream registry.
@@ -99,6 +125,22 @@ func DefaultConfig() *Config {
 			SharePushedImages:   false,
 			ShareUpstreamImages: true,
 			PublicNamespace:     "public",
+			TagTTL:              5 * time.Minute,
+		},
+		Auth: AuthConfig{
+			Enabled: false,
+			Realm:   "OCI Registry",
+		},
+		RateLimit: RateLimitConfig{
+			Enabled:   false,
+			MaxPerMin: 600,
+			BurstSize: 50,
+		},
+		GC: GCConfig{
+			Enabled:  false,
+			Interval: 1 * time.Hour,
+			MaxAge:   7 * 24 * time.Hour, // 7 days
+			DryRun:   false,
 		},
 		Upstreams: map[string]UpstreamConfig{
 			"docker.io": {
@@ -135,6 +177,10 @@ func Load(path string) (*Config, error) {
 		upstream.Auth.Username = os.ExpandEnv(upstream.Auth.Username)
 		upstream.Auth.Password = os.ExpandEnv(upstream.Auth.Password)
 		cfg.Upstreams[name] = upstream
+	}
+
+	for user, pass := range cfg.Auth.Users {
+		cfg.Auth.Users[user] = os.ExpandEnv(pass)
 	}
 
 	return cfg, nil

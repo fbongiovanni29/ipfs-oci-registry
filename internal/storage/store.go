@@ -8,7 +8,7 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/containerish/ipfs-oci-registry/internal/types"
+	"github.com/fbongiovanni29/ipfs-oci-registry/internal/types"
 	bolt "go.etcd.io/bbolt"
 )
 
@@ -368,6 +368,53 @@ type Stats struct {
 	TagCount        int
 	RepositoryCount int
 	UploadCount     int
+}
+
+// ForEachMapping iterates over all digest mappings.
+// The callback returns true to continue, false to stop.
+func (s *Store) ForEachMapping(fn func(mapping *types.BlobMapping) bool) error {
+	return s.db.View(func(tx *bolt.Tx) error {
+		bucket := tx.Bucket(bucketDigests)
+		return bucket.ForEach(func(k, v []byte) error {
+			var mapping types.BlobMapping
+			if err := json.Unmarshal(v, &mapping); err != nil {
+				return nil // skip malformed entries
+			}
+			if !fn(&mapping) {
+				return fmt.Errorf("stop") // stop iteration
+			}
+			return nil
+		})
+	})
+}
+
+// ListStaleUploads returns upload sessions older than maxAge.
+func (s *Store) ListStaleUploads(maxAge time.Duration) ([]*types.UploadSession, error) {
+	var stale []*types.UploadSession
+	cutoff := time.Now().Add(-maxAge)
+
+	err := s.db.View(func(tx *bolt.Tx) error {
+		bucket := tx.Bucket(bucketUploads)
+		return bucket.ForEach(func(k, v []byte) error {
+			var session types.UploadSession
+			if err := json.Unmarshal(v, &session); err != nil {
+				return nil
+			}
+			if session.StartedAt.Before(cutoff) {
+				stale = append(stale, &session)
+			}
+			return nil
+		})
+	})
+
+	return stale, err
+}
+
+// RemoveTempFile removes a temporary upload file, ignoring errors.
+func RemoveTempFile(path string) {
+	if path != "" {
+		os.Remove(path)
+	}
 }
 
 // GetStats returns statistics about the store.

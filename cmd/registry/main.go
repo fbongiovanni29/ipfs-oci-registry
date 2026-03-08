@@ -11,12 +11,14 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/containerish/ipfs-oci-registry/internal/config"
-	"github.com/containerish/ipfs-oci-registry/internal/federation"
-	"github.com/containerish/ipfs-oci-registry/internal/ipfs"
-	"github.com/containerish/ipfs-oci-registry/internal/registry"
-	"github.com/containerish/ipfs-oci-registry/internal/storage"
-	"github.com/containerish/ipfs-oci-registry/internal/upstream"
+	"github.com/fbongiovanni29/ipfs-oci-registry/internal/config"
+	"github.com/fbongiovanni29/ipfs-oci-registry/internal/federation"
+	"github.com/fbongiovanni29/ipfs-oci-registry/internal/gc"
+	"github.com/fbongiovanni29/ipfs-oci-registry/internal/ipfs"
+	"github.com/fbongiovanni29/ipfs-oci-registry/internal/middleware"
+	"github.com/fbongiovanni29/ipfs-oci-registry/internal/registry"
+	"github.com/fbongiovanni29/ipfs-oci-registry/internal/storage"
+	"github.com/fbongiovanni29/ipfs-oci-registry/internal/upstream"
 	"github.com/gorilla/mux"
 	"github.com/rs/zerolog"
 )
@@ -121,10 +123,32 @@ func main() {
 		logger.Fatal().Err(err).Msg("failed to create registry handler")
 	}
 
+	// Initialize garbage collector (if enabled)
+	if cfg.GC.Enabled {
+		collector := gc.NewCollector(store, ipfsClient, cfg.GC, logger)
+		collector.Start()
+		defer collector.Stop()
+		logger.Info().Msg("garbage collector enabled")
+	}
+
 	// Setup HTTP router
 	router := mux.NewRouter()
 	router.Use(loggingMiddleware(logger))
 	router.Use(corsMiddleware())
+
+	// Auth middleware (skips /healthz, /readyz)
+	if cfg.Auth.Enabled {
+		router.Use(middleware.Auth(cfg.Auth))
+		logger.Info().Msg("authentication enabled")
+	}
+
+	// Rate limiting middleware (skips /healthz, /readyz)
+	if cfg.RateLimit.Enabled {
+		rl := middleware.NewRateLimiter(cfg.RateLimit)
+		router.Use(rl.Middleware(cfg.RateLimit))
+		logger.Info().Int("max_per_min", cfg.RateLimit.MaxPerMin).Msg("rate limiting enabled")
+	}
+
 	handler.RegisterRoutes(router)
 
 	// Create HTTP server

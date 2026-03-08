@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/containerish/ipfs-oci-registry/internal/types"
+	"github.com/fbongiovanni29/ipfs-oci-registry/internal/types"
 )
 
 func TestNewStore(t *testing.T) {
@@ -289,6 +289,76 @@ func TestGetNonExistent(t *testing.T) {
 	_, err = store.GetUpload("nonexistent")
 	if err != ErrNotFound {
 		t.Errorf("expected ErrNotFound, got: %v", err)
+	}
+}
+
+func TestForEachMapping(t *testing.T) {
+	store := createTestStore(t)
+	defer store.Close()
+
+	store.PutMapping(&types.BlobMapping{Digest: "sha256:aaa", CID: "Qm1", CreatedAt: time.Now()})
+	store.PutMapping(&types.BlobMapping{Digest: "sha256:bbb", CID: "Qm2", CreatedAt: time.Now()})
+	store.PutMapping(&types.BlobMapping{Digest: "sha256:ccc", CID: "Qm3", CreatedAt: time.Now()})
+
+	var count int
+	err := store.ForEachMapping(func(m *types.BlobMapping) bool {
+		count++
+		return true
+	})
+
+	if err != nil {
+		t.Fatalf("ForEachMapping failed: %v", err)
+	}
+	if count != 3 {
+		t.Errorf("expected 3 mappings, got %d", count)
+	}
+}
+
+func TestForEachMappingEarlyStop(t *testing.T) {
+	store := createTestStore(t)
+	defer store.Close()
+
+	store.PutMapping(&types.BlobMapping{Digest: "sha256:aaa", CID: "Qm1"})
+	store.PutMapping(&types.BlobMapping{Digest: "sha256:bbb", CID: "Qm2"})
+	store.PutMapping(&types.BlobMapping{Digest: "sha256:ccc", CID: "Qm3"})
+
+	var count int
+	store.ForEachMapping(func(m *types.BlobMapping) bool {
+		count++
+		return count < 2 // stop after 2
+	})
+
+	if count != 2 {
+		t.Errorf("expected early stop at 2, got %d", count)
+	}
+}
+
+func TestListStaleUploads(t *testing.T) {
+	store := createTestStore(t)
+	defer store.Close()
+
+	// Fresh upload
+	store.PutUpload(&types.UploadSession{
+		ID:        "fresh",
+		StartedAt: time.Now(),
+	})
+
+	// Stale upload (2 days old)
+	store.PutUpload(&types.UploadSession{
+		ID:        "stale",
+		StartedAt: time.Now().Add(-48 * time.Hour),
+	})
+
+	stale, err := store.ListStaleUploads(24 * time.Hour)
+	if err != nil {
+		t.Fatalf("ListStaleUploads failed: %v", err)
+	}
+
+	if len(stale) != 1 {
+		t.Errorf("expected 1 stale upload, got %d", len(stale))
+	}
+	if len(stale) > 0 && stale[0].ID != "stale" {
+		t.Errorf("expected stale upload ID 'stale', got '%s'", stale[0].ID)
 	}
 }
 

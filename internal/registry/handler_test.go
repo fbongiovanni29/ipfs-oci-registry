@@ -12,10 +12,11 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
-	"github.com/containerish/ipfs-oci-registry/internal/config"
-	"github.com/containerish/ipfs-oci-registry/internal/storage"
-	"github.com/containerish/ipfs-oci-registry/internal/types"
+	"github.com/fbongiovanni29/ipfs-oci-registry/internal/config"
+	"github.com/fbongiovanni29/ipfs-oci-registry/internal/storage"
+	"github.com/fbongiovanni29/ipfs-oci-registry/internal/types"
 	"github.com/gorilla/mux"
 	"github.com/rs/zerolog"
 )
@@ -522,6 +523,76 @@ func TestCrossRepoMount(t *testing.T) {
 
 	if rec.Header().Get("Docker-Content-Digest") != digest {
 		t.Errorf("unexpected digest: %s", rec.Header().Get("Docker-Content-Digest"))
+	}
+}
+
+func TestHealthLive(t *testing.T) {
+	th := setupTestHandler(t)
+	defer th.Close()
+
+	req := httptest.NewRequest(http.MethodGet, "/healthz", nil)
+	rec := httptest.NewRecorder()
+
+	th.router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Errorf("expected status 200, got %d", rec.Code)
+	}
+
+	body := rec.Body.String()
+	if !strings.Contains(body, `"status":"ok"`) {
+		t.Errorf("unexpected body: %s", body)
+	}
+}
+
+func TestHealthReady(t *testing.T) {
+	th := setupTestHandler(t)
+	defer th.Close()
+
+	// Readiness requires IPFS — our test handler has no real IPFS client,
+	// so ipfsClient is nil. We just verify the endpoint exists and returns a response.
+	req := httptest.NewRequest(http.MethodGet, "/readyz", nil)
+	rec := httptest.NewRecorder()
+
+	th.router.ServeHTTP(rec, req)
+
+	// Will be 503 because ipfsClient is nil in test
+	if rec.Code != http.StatusServiceUnavailable && rec.Code != http.StatusOK {
+		t.Errorf("expected 200 or 503, got %d", rec.Code)
+	}
+}
+
+func TestIsTagStale(t *testing.T) {
+	th := setupTestHandler(t)
+	defer th.Close()
+
+	// Set TTL to 5 minutes
+	th.config.Federation.TagTTL = 5 * time.Minute
+
+	fresh := &types.TagReference{
+		Repository: "myapp",
+		Tag:        "latest",
+		Digest:     "sha256:abc",
+		UpdatedAt:  time.Now(),
+	}
+	if th.isTagStale(fresh) {
+		t.Error("fresh tag should not be stale")
+	}
+
+	stale := &types.TagReference{
+		Repository: "myapp",
+		Tag:        "latest",
+		Digest:     "sha256:abc",
+		UpdatedAt:  time.Now().Add(-10 * time.Minute),
+	}
+	if !th.isTagStale(stale) {
+		t.Error("old tag should be stale")
+	}
+
+	// TTL disabled
+	th.config.Federation.TagTTL = 0
+	if th.isTagStale(stale) {
+		t.Error("tag should never be stale when TTL is 0")
 	}
 }
 

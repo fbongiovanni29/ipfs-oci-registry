@@ -12,7 +12,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/containerish/ipfs-oci-registry/internal/config"
+	"github.com/fbongiovanni29/ipfs-oci-registry/internal/config"
 	"github.com/rs/zerolog"
 )
 

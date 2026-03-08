@@ -20,6 +20,7 @@ federation:
   announce_new_content: true
   share_pushed_images: false
   share_upstream_images: true
+  tag_ttl: 5m
 
 upstreams:
   docker.io:

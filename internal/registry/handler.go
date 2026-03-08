@@ -12,13 +12,14 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
-	"github.com/containerish/ipfs-oci-registry/internal/config"
-	"github.com/containerish/ipfs-oci-registry/internal/ipfs"
-	"github.com/containerish/ipfs-oci-registry/internal/storage"
-	"github.com/containerish/ipfs-oci-registry/internal/types"
-	"github.com/containerish/ipfs-oci-registry/internal/upstream"
+	"github.com/fbongiovanni29/ipfs-oci-registry/internal/config"
+	"github.com/fbongiovanni29/ipfs-oci-registry/internal/ipfs"
+	"github.com/fbongiovanni29/ipfs-oci-registry/internal/storage"
+	"github.com/fbongiovanni29/ipfs-oci-registry/internal/types"
+	"github.com/fbongiovanni29/ipfs-oci-registry/internal/upstream"
 	"github.com/google/uuid"
 	"github.com/gorilla/mux"
 	"github.com/rs/zerolog"
@@ -33,6 +34,7 @@ type Handler struct {
 	config     *config.Config
 	logger     zerolog.Logger
 	tempDir    string
+	uploadMu   sync.Map // map[uploadID]*sync.Mutex
 }
 
 // Federation interface for the federation layer.
@@ -66,8 +68,18 @@ func NewHandler(
 	}, nil
 }
 
+// getUploadLock returns a per-upload mutex, creating one if needed.
+func (h *Handler) getUploadLock(uploadID string) *sync.Mutex {
+	v, _ := h.uploadMu.LoadOrStore(uploadID, &sync.Mutex{})
+	return v.(*sync.Mutex)
+}
+
 // RegisterRoutes registers the OCI Distribution API routes.
 func (h *Handler) RegisterRoutes(r *mux.Router) {
+	// Health endpoints (no auth, no rate limit)
+	r.HandleFunc("/healthz", h.handleHealthLive).Methods(http.MethodGet)
+	r.HandleFunc("/readyz", h.handleHealthReady).Methods(http.MethodGet)
+
 	// API version check
 	r.HandleFunc("/v2/", h.handleAPIVersion).Methods(http.MethodGet, http.MethodHead)
 	r.HandleFunc("/v2", h.handleAPIVersion).Methods(http.MethodGet, http.MethodHead)
@@ -99,6 +111,39 @@ func (h *Handler) RegisterRoutes(r *mux.Router) {
 func (h *Handler) handleAPIVersion(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Docker-Distribution-API-Version", "registry/2.0")
 	w.WriteHeader(http.StatusOK)
+}
+
+// handleHealthLive handles GET /healthz — liveness probe.
+func (h *Handler) handleHealthLive(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	w.Write([]byte(`{"status":"ok"}`))
+}
+
+// handleHealthReady handles GET /readyz — readiness probe.
+func (h *Handler) handleHealthReady(w http.ResponseWriter, r *http.Request) {
+	// Check BoltDB
+	_, err := h.store.GetStats()
+	if err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusServiceUnavailable)
+		w.Write([]byte(`{"status":"not ready","reason":"database unavailable"}`))
+		return
+	}
+
+	// Check IPFS connectivity
+	ctx, cancel := context.WithTimeout(r.Context(), 3*time.Second)
+	defer cancel()
+	if h.ipfsClient == nil || !h.ipfsClient.IsAvailable(ctx) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusServiceUnavailable)
+		w.Write([]byte(`{"status":"not ready","reason":"ipfs unavailable"}`))
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	w.Write([]byte(`{"status":"ready"}`))
 }
 
 // handleCatalog handles GET /v2/_catalog
@@ -416,6 +461,11 @@ func (h *Handler) handleBlobUploadPatch(w http.ResponseWriter, r *http.Request) 
 	name := vars["name"]
 	uploadID := vars["uuid"]
 
+	// Lock this upload to prevent concurrent chunk writes
+	mu := h.getUploadLock(uploadID)
+	mu.Lock()
+	defer mu.Unlock()
+
 	session, err := h.store.GetUpload(uploadID)
 	if err != nil {
 		h.writeError(w, http.StatusNotFound, types.ErrorCodeBlobUploadUnknown, "upload unknown")
@@ -454,6 +504,14 @@ func (h *Handler) handleBlobUploadPut(w http.ResponseWriter, r *http.Request) {
 	name := vars["name"]
 	uploadID := vars["uuid"]
 	digest := r.URL.Query().Get("digest")
+
+	// Lock this upload to prevent concurrent writes
+	mu := h.getUploadLock(uploadID)
+	mu.Lock()
+	defer func() {
+		mu.Unlock()
+		h.uploadMu.Delete(uploadID) // cleanup lock after upload completes
+	}()
 
 	if digest == "" {
 		h.writeError(w, http.StatusBadRequest, types.ErrorCodeDigestInvalid, "digest required")
