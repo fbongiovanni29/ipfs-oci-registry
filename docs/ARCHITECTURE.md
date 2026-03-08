@@ -598,6 +598,24 @@ federation:
   share_pushed_images: false      # proprietary images stay local
   share_upstream_images: true     # public upstream pulls are shared
   public_namespace: "public"      # push to public/ to opt in to sharing
+  tag_ttl: 5m                    # re-check upstream after 5 minutes
+
+auth:
+  enabled: false
+  realm: "OCI Registry"
+  users:
+    admin: ${REGISTRY_PASSWORD}
+
+rate_limit:
+  enabled: false
+  max_per_minute: 600
+  burst_size: 50
+
+gc:
+  enabled: false
+  interval: 1h
+  max_age: 168h                  # 7 days
+  dry_run: false
 
 upstreams:
   docker.io:

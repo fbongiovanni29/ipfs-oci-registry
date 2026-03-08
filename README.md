@@ -419,6 +419,32 @@ upstreams:
   #     type: basic
   #     username: ${REGISTRY_USER}      # Environment variable expansion
   #     password: ${REGISTRY_PASSWORD}
+
+# Authentication (optional — disabled by default)
+auth:
+  enabled: false
+  realm: "OCI Registry"
+  users:
+    admin: ${REGISTRY_PASSWORD}        # Environment variable expansion
+    readonly: changeme
+
+# Per-IP rate limiting (optional — disabled by default)
+rate_limit:
+  enabled: false
+  max_per_minute: 600                  # Requests per IP per minute
+  burst_size: 50                       # Allow short bursts above limit
+
+# Garbage collection (optional — disabled by default)
+gc:
+  enabled: false
+  interval: 1h                         # How often to run GC
+  max_age: 168h                        # Delete content older than 7 days
+  dry_run: false                       # Log what would be deleted without deleting
+
+# Tag TTL (in federation config)
+federation:
+  tag_ttl: 5m                          # Re-check upstream for tag updates every 5 minutes
+                                       # Serves stale cache if upstream is unreachable
 ```
 
 ---
@@ -504,6 +530,8 @@ Full [OCI Distribution Spec](https://github.com/opencontainers/distribution-spec
 
 | Endpoint | Method | Description |
 |----------|--------|-------------|
+| `/healthz` | GET | Liveness probe (always 200 if server is running) |
+| `/readyz` | GET | Readiness probe (checks BoltDB + IPFS connectivity) |
 | `/v2/` | GET | API version check |
 | `/v2/_catalog` | GET | List repositories |
 | `/v2/{name}/tags/list` | GET | List tags for repository |
@@ -513,6 +541,76 @@ Full [OCI Distribution Spec](https://github.com/opencontainers/distribution-spec
 | `/v2/{name}/blobs/{digest}` | HEAD | Check blob existence |
 | `/v2/{name}/blobs/uploads/` | POST | Initiate blob upload |
 | `/v2/{name}/blobs/uploads/{uuid}` | PATCH/PUT | Upload blob chunks |
+
+---
+
+## Production Hardening
+
+### Health Checks
+
+Kubernetes-ready liveness and readiness probes:
+
+```yaml
+# Pod spec
+livenessProbe:
+  httpGet:
+    path: /healthz
+    port: 5000
+readinessProbe:
+  httpGet:
+    path: /readyz        # Checks BoltDB + IPFS connectivity
+    port: 5000
+```
+
+### Authentication
+
+Optional basic auth on all registry endpoints (health endpoints are always public):
+
+```yaml
+auth:
+  enabled: true
+  realm: "OCI Registry"
+  users:
+    admin: ${REGISTRY_PASSWORD}
+```
+
+### Rate Limiting
+
+Per-IP rate limiting to prevent abuse. Health endpoints are excluded:
+
+```yaml
+rate_limit:
+  enabled: true
+  max_per_minute: 600
+  burst_size: 50
+```
+
+### Tag TTL (Stale-While-Revalidate)
+
+Cached tags (e.g., `nginx:latest`) are re-checked against upstream after the TTL expires. If upstream is unreachable, the stale cache is served — better than failing:
+
+```yaml
+federation:
+  tag_ttl: 5m           # 0 = never revalidate (cache forever)
+```
+
+### Garbage Collection
+
+Background worker that removes old content from IPFS and BoltDB:
+
+```yaml
+gc:
+  enabled: true
+  interval: 1h          # Run every hour
+  max_age: 168h         # Remove content older than 7 days
+  dry_run: true         # Preview what would be deleted (set false to actually delete)
+```
+
+Also cleans up abandoned upload sessions (older than 24 hours).
+
+### Upload Safety
+
+Concurrent PATCH/PUT requests to the same upload session are serialized with per-upload mutexes. No data corruption from parallel chunk uploads.
 
 ---
 
@@ -529,13 +627,18 @@ go test ./... -race
 go test ./... -cover
 ```
 
-46 tests covering storage, handlers (including federation policy), config, and upstream client.
+58 tests covering storage, handlers, health endpoints, auth middleware, rate limiting, tag TTL, config, and upstream client.
 
 ---
 
 ## Roadmap
 
-- [ ] Garbage collection for unpinned content
+- [x] Garbage collection for unpinned content
+- [x] Health endpoints (`/healthz`, `/readyz`)
+- [x] Authentication middleware (basic auth)
+- [x] Per-IP rate limiting
+- [x] Tag TTL with stale-while-revalidate
+- [x] Upload concurrency safety
 - [ ] Prometheus metrics endpoint
 - [ ] Web UI for browsing images
 - [ ] Signature verification (cosign/notation)
