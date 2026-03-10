@@ -8,9 +8,7 @@
 [![OCI Compliant](https://img.shields.io/badge/OCI-Distribution%20Spec-blue?style=flat)](https://github.com/opencontainers/distribution-spec)
 [![License](https://img.shields.io/badge/License-MIT-green?style=flat)](LICENSE)
 
-> **Early Access** — Looking for early adopters. 60+ tests, e2e validated with Docker and Kubernetes. [Open an issue](https://github.com/fbongiovanni29/ipfs-oci-registry/issues) or reach out.
-
-> **Public Instance Coming Soon** — A live instance will be available for anyone to try. Stay tuned.
+> **Archived** — This project is no longer under active development. It works, it's tested, and it taught us a lot — but IPFS turned out to be the wrong transport layer for container images at scale. See [Lessons Learned](#lessons-learned) below.
 
 ---
 
@@ -207,6 +205,45 @@ go build ./cmd/registry
 ## License
 
 MIT — see [LICENSE](LICENSE).
+
+---
+
+## Lessons Learned
+
+We built a fully functional OCI registry backed by IPFS — federation, pull-through proxy for 7 registries, Prometheus metrics, the works. Then we benchmarked it.
+
+### IPFS is slow for large blobs
+
+| Image | Size | IPFS Cache | Docker Hub Direct |
+|-------|------|-----------|-------------------|
+| alpine | 3.5MB | **249ms** | 1985ms |
+| nginx | 70MB | 2354ms | **677ms** |
+| golang | 300MB | 9348ms | **771ms** |
+
+IPFS wins for tiny images where network round-trip dominates. For anything real-world, it's 3-12x slower than a CDN. IPFS Bitswap exchanges 256KB blocks with per-block negotiation overhead — it was designed for DAG traversal, not streaming large sequential files.
+
+### The speed story requires scale that doesn't exist yet
+
+The pitch was "images get faster as more people use them." That's true in theory — Bitswap can pull blocks from multiple peers simultaneously. But with 1 seeder, you have 1 pipe, same as HTTP. The network effect only kicks in with many seeders, and building that network is a chicken-and-egg problem.
+
+### The value prop didn't survive contact with reality
+
+- **"Eliminates rate limits"** — So does any caching proxy. Harbor, registry mirrors, even a simple nginx cache.
+- **"P2P across organizations"** — Technically unique, but nobody's asking for it. Companies share public images by pulling from Docker Hub. It works.
+- **"No central server"** — Most teams are fine with one. The operational overhead of running IPFS nodes outweighs the resilience benefit.
+- **"Works offline"** — True, but so does any cache. The differentiator is P2P offline without a central server — a real but very niche use case (edge/field deployments).
+
+### What would actually work
+
+**BitTorrent with DHT** is likely the right transport for decentralized container image distribution. It's designed for large file transfer, proven at internet scale, truly decentralized (no tracker needed with DHT), and has mature Go libraries. Kraken (Uber) already proved BitTorrent works for container images — they just bolted a centralized tracker on top. Remove the tracker, use DHT, and you'd get Kraken's speed without the central dependency.
+
+### What we'd keep
+
+The architecture is sound — the OCI handler, federation policy, digest→content-ID mapping, GitOps deployment model. If someone wanted to build a BitTorrent-backed registry, most of this codebase would carry over. The IPFS transport layer is the part to replace.
+
+### Was it worth building?
+
+Yes. The code works. The tests pass. The architecture docs are solid. And we now know, with benchmarks to prove it, exactly why IPFS isn't the right tool for this job — which is more useful than speculating about it.
 
 ---
 
